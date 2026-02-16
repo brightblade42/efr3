@@ -1,4 +1,4 @@
-use super::{async_trait, FRBackend, FRResult, MatchConfig};
+use super::{FRBackend, FRResult, MatchConfig};
 use crate::{utils, EnrollData, EnrollDetails, FRError};
 use crate::{FRIdentity, Face, IDKind, Image, MinDetails, PossibleMatch};
 use base64::{engine::general_purpose, Engine as _};
@@ -13,15 +13,12 @@ use sqlx::PgPool;
 
 use crate::remote::{RegistrationPair, Remote, SearchResult};
 use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-type DynRemote = Arc<dyn Remote>;
-
 #[derive(Clone)]
-pub struct PVBackend {
+pub struct PVBackend<R> {
     api: PVApi,
-    remote: Option<DynRemote>,
+    remote: R,
     db: PgPool,
 }
 
@@ -60,9 +57,12 @@ fn parse_ext_id_or_default(fr_id: &str, ext_id: &str) -> u64 {
     }
 }
 
-impl PVBackend {
+impl<R> PVBackend<R>
+where
+    R: Remote,
+{
     ///creates the backend using an existing database pool
-    pub fn new(proc_url: String, ident_url: String, db: PgPool, remote: Option<DynRemote>) -> Self {
+    pub fn new(proc_url: String, ident_url: String, db: PgPool, remote: R) -> Self {
         Self {
             api: PVApi::new(proc_url, ident_url),
             db,
@@ -439,31 +439,29 @@ impl PVBackend {
     }
 }
 
-#[async_trait]
-impl FRBackend for PVBackend {
+impl<R> FRBackend for PVBackend<R>
+where
+    R: Remote,
+{
     async fn create_enrollment(
         &self,
         mut enroll_data: EnrollData,
         config: MatchConfig,
     ) -> FRResult<Value> {
-        let mut search_results: Option<SearchResult> = None;
+        let remote_data = self.remote.search(&enroll_data).await?; //what do we mean by error
 
-        if let Some(rem) = &self.remote {
-            let remote_data = rem.search(&enroll_data).await?; //what do we mean by error
-
-            //TODO: do we need to take a reference. if this is the only place we use it.
-            //we could avoid some string cloning
-            search_results = remote_data.into_iter().next(); //.unwrap(); //are we sure we'll always have this when we get here?
-            let img = search_results
-                .as_ref()
-                .and_then(|result| result.image.as_ref());
-            //if we didn't get an image from fn arg, check if we got one from remote and replace value
-            if enroll_data.image.is_none() {
-                enroll_data.image = match img {
-                    Some(Image::Binary(b)) => Some(general_purpose::STANDARD.encode(b)),
-                    Some(Image::Base64(b)) => Some(b.to_string()),
-                    None => None,
-                }
+        //TODO: do we need to take a reference. if this is the only place we use it.
+        //we could avoid some string cloning
+        let search_results: Option<SearchResult> = remote_data.into_iter().next(); //.unwrap(); //are we sure we'll always have this when we get here?
+        let img = search_results
+            .as_ref()
+            .and_then(|result| result.image.as_ref());
+        //if we didn't get an image from fn arg, check if we got one from remote and replace value
+        if enroll_data.image.is_none() {
+            enroll_data.image = match img {
+                Some(Image::Binary(b)) => Some(general_purpose::STANDARD.encode(b)),
+                Some(Image::Base64(b)) => Some(b.to_string()),
+                None => None,
             }
         }
 
@@ -563,29 +561,24 @@ impl FRBackend for PVBackend {
         //run another process later to make another attempt by pulling from log data
 
         let fr_id = ident.id;
-        let mut eid = 0;
+        let eid = ext_id.ok_or_else(|| {
+            error!("We need a remote id to  complete enrollment!");
+            FRError::with_code(
+                1050,
+                "External id was not found. Couldn't register with remote. Partial enrollment",
+            )
+        })?;
 
-        //register with remote
-        if let Some(rem) = &self.remote {
-            eid = ext_id.ok_or_else(|| {
-                error!("We need a remote id to  complete enrollment!");
-                FRError::with_code(
-                    1050,
-                    "External id was not found. Couldn't register with remote. Partial enrollment",
-                )
-            })?;
+        debug!("Registering enrollment with conifgured Remote.");
+        let reg_pair = RegistrationPair::new(fr_id.clone(), eid);
+        let reg_res = self.remote.register_enrollment(&reg_pair).await;
 
-            debug!("Registering enrollment with conifgured Remote.");
-            let reg_pair = RegistrationPair::new(fr_id.clone(), eid);
-            let reg_res = rem.register_enrollment(&reg_pair).await;
-
-            //info!("{:?}", &reg_res);
-            //this results in a partial enrollment, enough to return a match but unable to pull external details.
-            if let Err(e) = reg_res {
-                self.log_enroll_err("register_enrollment", &e, &details)
-                    .await;
-                return Err(e);
-            }
+        //info!("{:?}", &reg_res);
+        //this results in a partial enrollment, enough to return a match but unable to pull external details.
+        if let Err(e) = reg_res {
+            self.log_enroll_err("register_enrollment", &e, &details)
+                .await;
+            return Err(e);
         }
 
         //TODO: too much json. start thinking about structs
@@ -613,11 +606,9 @@ impl FRBackend for PVBackend {
                     );
                 }
 
-                if let Some(rem) = &self.remote {
-                    let _res = rem.unregister_enrollment().await?; //what do we mean by error
-                                                                   //TODO: what should we do if unreg fails? not our problem? log it?
-                                                                   //log un_register error.
-                }
+                let _res = self.remote.unregister_enrollment().await?; //what do we mean by error
+                                                                       //TODO: what should we do if unreg fails? not our problem? log it?
+                                                                       //log un_register error.
 
                 Ok(json!({ "fr_id": del_id })) //we'll want our own data structure, maybe that's for one level up
             }
@@ -716,36 +707,30 @@ impl FRBackend for PVBackend {
             .to_fr_identities(&lookups, config.min_match, true)
             .await?;
 
-        match &self.remote {
-            Some(rem) => {
-                let ext_ids: Vec<IDKind> = fr_idents
-                    .iter()
-                    .flat_map(|fr| &fr.possible_matches) //hoist em up
-                    .filter(|pm| pm.ext_id != 0)
-                    .map(|pm| IDKind::Num(pm.ext_id))
-                    .collect();
-                //get full details.
+        let ext_ids: Vec<IDKind> = fr_idents
+            .iter()
+            .flat_map(|fr| &fr.possible_matches) //hoist em up
+            .filter(|pm| pm.ext_id != 0)
+            .map(|pm| IDKind::Num(pm.ext_id))
+            .collect();
+        //get full details.
 
-                let srs = rem
-                    .search_many(crate::SearchBy::ExtIDS(ext_ids), false)
-                    .await?;
+        let srs = self
+            .remote
+            .search_many(crate::SearchBy::ExtIDS(ext_ids), false)
+            .await?;
 
-                for fr_ident in &mut fr_idents {
-                    for pm in &mut fr_ident.possible_matches {
-                        for sr in srs.iter() {
-                            if sr["ccode"].as_u64().is_some_and(|cc| cc == pm.ext_id) {
-                                pm.details = Some(sr.clone())
-                            }
-                        }
+        for fr_ident in &mut fr_idents {
+            for pm in &mut fr_ident.possible_matches {
+                for sr in srs.iter() {
+                    if sr["ccode"].as_u64().is_some_and(|cc| cc == pm.ext_id) {
+                        pm.details = Some(sr.clone())
                     }
                 }
-
-                info!("{:?}", &srs);
-            }
-            None => {
-                info!("no remote");
             }
         }
+
+        info!("{:?}", &srs);
 
         Ok(fr_idents)
     }

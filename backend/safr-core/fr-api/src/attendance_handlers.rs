@@ -2,7 +2,10 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, FRIdentity};
+use libfr::{
+    backend::{FRBackend, MatchConfig},
+    FRIdentity,
+};
 use libtpass::types::{AttendanceKind, AttendanceStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,7 +31,7 @@ pub async fn mark_attendance(
     let image = img_data
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
-    let res = app_state.backend.recognize(image, mconf).await?;
+    let res = app_state.fr_engine.recognize(image, mconf).await?;
 
     // TODO: Consider how to better handle recognition results. We only want to deal with a
     // single face. If we have more than one face then we have false positives or an image with
@@ -107,7 +110,7 @@ pub async fn mark_attendance(
 
     let extra = serde_json::to_value(&v_ident.status).ok();
     app_state
-        .backend
+        .fr_engine
         .log_identity(&v_ident.identity, extra.as_ref(), &location)
         .await?;
 

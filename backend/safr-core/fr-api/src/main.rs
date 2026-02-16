@@ -4,6 +4,7 @@ mod errors;
 mod extractors;
 mod profile_handlers;
 mod recognition_handlers;
+mod runtime;
 mod tpass_handlers;
 mod types;
 mod v1_handlers;
@@ -26,21 +27,17 @@ use tracing::{error, info};
 
 //use tokio::sync::Mutex;
 use crate::errors::AppError;
-use libfr::backend::paravision::PVBackend;
-use libfr::{
-    backend::{FRBackend, MatchConfig},
-    remote::Remote,
-};
+use crate::runtime::{FREngine, RemoteRuntime};
+use libfr::backend::MatchConfig;
 
 use libtpass::api::TPassClient;
 
 type WResult<T> = Result<T, AppError>;
 
-//TODO: figure out how to actually swap out the backend. I need to refer to the
-//FRBackend trait but the compiler yells at me! I have to use the concrete type.
+// Backend/remote are selected once at startup via env defaults.
 #[derive(Clone)]
 struct AppState {
-    backend: Arc<dyn FRBackend + Send + Sync>,
+    fr_engine: Arc<FREngine>,
     tpass_client: Arc<TPassClient>,
     config: Config,
 }
@@ -99,8 +96,6 @@ impl Config {
     }
 }
 
-type Backend = Arc<dyn FRBackend + Send + Sync>; //quit the noise a touch
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -134,19 +129,43 @@ async fn main() {
     };
 
     let tpass_client = Arc::new(TPassClient::new(None));
-    let tp_remote: Arc<dyn Remote> = tpass_client.clone();
+    let fr_remote_env = env::var("FR_REMOTE").ok();
+    let fr_backend_env = env::var("FR_BACKEND").ok();
 
-    let backend = Arc::new(PVBackend::new(
+    let remote = match RemoteRuntime::from_env(fr_remote_env.clone(), tpass_client.clone()) {
+        Ok(remote) => remote,
+        Err(e) => {
+            error!("{}", e);
+            return;
+        }
+    };
+    let remote_name = remote.name();
+
+    let fr_engine = match FREngine::from_env(
+        fr_backend_env.clone(),
         config.pv_proc_url.clone(),
         config.pv_ident_url.clone(),
         db_pool,
-        Some(tp_remote),
-    )) as Backend;
+        remote,
+    ) {
+        Ok(fr_engine) => fr_engine,
+        Err(e) => {
+            error!("{}", e);
+            return;
+        }
+    };
 
-    info!("BACKEND: pv");
+    info!(
+        "startup env FR_BACKEND={} FR_REMOTE={}",
+        fr_backend_env.as_deref().unwrap_or("<unset>"),
+        fr_remote_env.as_deref().unwrap_or("<unset>"),
+    );
+
+    info!("BACKEND: {}", fr_engine.name());
+    info!("REMOTE: {}", remote_name);
 
     let app_state = AppState {
-        backend,
+        fr_engine: Arc::new(fr_engine),
         tpass_client,
         config: config.clone(), //some tpass specific calls
     };
@@ -316,7 +335,7 @@ impl From<&Config> for MatchConfig {
 async fn detect_image_embed(State(app_state): State<AppState>, multipart: Multipart) -> WResult<Json<Value>> {
 
     let img_data = extract_image_data(multipart).await?;
-    let res  = app_state.backend.detect_image_embed(img_data.image.unwrap()).await?;
+    let res  = app_state.fr_engine.detect_image_embed(img_data.image.unwrap()).await?;
     Ok(Json(res))
 }
  */

@@ -1,11 +1,10 @@
 pub mod paravision;
 mod pvtypes;
 use crate::{EnrollData, FRIdentity, FRResult};
-use async_trait::async_trait;
 use serde_json::Value;
 
-#[async_trait]
-pub trait FRBackend {
+#[allow(async_fn_in_trait)]
+pub trait FRBackend: Send + Sync {
     //async fn enroll_face(&self, b64: String, details: EnrollDetails) -> FRResult;
     async fn create_enrollment(
         &self,

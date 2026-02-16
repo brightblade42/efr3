@@ -2,7 +2,10 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, EnrollData, EnrollDetails};
+use libfr::{
+    backend::{FRBackend, MatchConfig},
+    EnrollData, EnrollDetails,
+};
 use libtpass::types::EditProfileRequest;
 use serde_json::Value;
 
@@ -51,7 +54,7 @@ pub async fn create_profile(
 
     let mconf = MatchConfig::from(&app_state.config);
     let res = app_state
-        .backend
+        .fr_engine
         .create_enrollment(enroll_data, mconf)
         .await?;
 

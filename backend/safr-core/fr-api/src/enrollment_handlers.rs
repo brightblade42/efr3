@@ -2,7 +2,7 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::backend::MatchConfig;
+use libfr::backend::{FRBackend, MatchConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::info;
@@ -16,7 +16,7 @@ pub async fn search_enrollment(
     let SearchEnrollmentBy::LastName(term) = search_by;
 
     let res = app_state
-        .backend
+        .fr_engine
         .get_enrollments_by_last_name(&term)
         .await?;
     Ok(Json(res))
@@ -31,7 +31,7 @@ pub async fn create_enrollment(
     let mconf = MatchConfig::from(&app_state.config);
 
     let res = app_state
-        .backend
+        .fr_engine
         .create_enrollment(enroll_data, mconf)
         .await?;
     Ok(Json(res))
@@ -39,7 +39,7 @@ pub async fn create_enrollment(
 
 /// Returns a list of every enrollment in the system. We will want to add paging.
 pub async fn get_enrollment_roster(State(app_state): State<AppState>) -> WResult<Json<Value>> {
-    let res = app_state.backend.get_enrollment_roster().await?;
+    let res = app_state.fr_engine.get_enrollment_roster().await?;
     Ok(Json(res))
 }
 
@@ -48,14 +48,14 @@ pub async fn delete_enrollment(
     Json(payload): Json<DeleteEnrollmentBy>,
 ) -> WResult<Json<Value>> {
     let image_id = extract_image_id(payload);
-    let res = app_state.backend.delete_enrollment(&image_id).await?;
+    let res = app_state.fr_engine.delete_enrollment(&image_id).await?;
     info!("{:?}", res);
     Ok(Json(res))
 }
 
 /// Deletes all enrollments and resets everything.
 pub async fn reset_enrollments(State(app_state): State<AppState>) -> WResult<Json<Value>> {
-    let res = app_state.backend.reset_enrollments().await?;
+    let res = app_state.fr_engine.reset_enrollments().await?;
     Ok(Json(res))
 }
 
@@ -65,7 +65,7 @@ pub async fn get_enrollment_errlog(State(_app_state): State<AppState>) -> WResul
 
 /// Gets metadata about the enrollment database.
 pub async fn get_enrollment_metadata(State(app_state): State<AppState>) -> WResult<Json<Value>> {
-    let res = app_state.backend.get_enrollment_metadata().await?;
+    let res = app_state.fr_engine.get_enrollment_metadata().await?;
     Ok(Json(res))
 }
 

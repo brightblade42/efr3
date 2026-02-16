@@ -2,14 +2,12 @@ use crate::{
     remote::Remote, EnrollData, EnrollDetails, FRError, FRResult, IDKind, Image, SearchBy,
 };
 
-use async_trait::async_trait;
 use libtpass::api::TPassClient;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
 use super::{RegistrationPair, SearchResult};
 
-#[async_trait]
 impl Remote for TPassClient {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value> {
         //TODO: reconstruct enrollment from old TPass functions.

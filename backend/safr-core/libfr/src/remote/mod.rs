@@ -1,11 +1,10 @@
 mod tpass;
 
 use crate::{EnrollData, FRResult, Image, SearchBy};
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 //some external api based system that holds information about the people that need recognizing.
-#[async_trait]
+#[allow(async_fn_in_trait)]
 pub trait Remote: Send + Sync {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value>;
     async fn unregister_enrollment(&self) -> FRResult<Value>;

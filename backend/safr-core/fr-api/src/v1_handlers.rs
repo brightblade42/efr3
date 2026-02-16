@@ -4,8 +4,9 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use libfr::{
-    backend::MatchConfig, remote::Remote, EnrollData, EnrollDetails, FRIdentity, IDKind, Image,
-    SearchBy,
+    backend::{FRBackend, MatchConfig},
+    remote::Remote,
+    EnrollData, EnrollDetails, FRIdentity, IDKind, Image, SearchBy,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -46,7 +47,7 @@ pub async fn add_face_v1(
         Some(img) => img,
     };
 
-    let res = app_state.backend.add_face(&fr_id, img).await?;
+    let res = app_state.fr_engine.add_face(&fr_id, img).await?;
     let add_face = serde_json::from_value::<AddFaceResponse>(res)
         .map_err(|e| AppError::Generic(format!("failed to parse add-face response: {}", e)))?;
     let mut res_v1 = AddFaceResponseV1::try_from(add_face).map_err(|e| {
@@ -73,7 +74,7 @@ pub async fn delete_face_v1(
     }
 
     let _res = app_state
-        .backend
+        .fr_engine
         .delete_face(&del_req.fr_id, &del_req.face_id)
         .await?;
 
@@ -93,7 +94,7 @@ pub async fn get_faces_v1(
         ));
     }
 
-    let res = app_state.backend.get_face_info(&req.fr_id).await?;
+    let res = app_state.fr_engine.get_face_info(&req.fr_id).await?;
     let value = serde_json::to_value(res)
         .map_err(|e| AppError::Generic(format!("failed to serialize get-faces response: {}", e)))?;
     Ok(Json(value))
@@ -114,7 +115,7 @@ pub async fn delete_enrollment_v1(
             AppError::Generic("No fr_id was found. Did you send one?".to_string())
         })?;
 
-    let res = app_state.backend.delete_enrollment(&fr_id).await;
+    let res = app_state.fr_engine.delete_enrollment(&fr_id).await;
     let v1_res = match res {
         Ok(_v) => {
             json!({
@@ -157,7 +158,7 @@ pub async fn recognize_v1(
         AppError::Generic("An image is required but was not provided".to_string())
     })?;
 
-    let res = app_state.backend.recognize(image, mconf).await?;
+    let res = app_state.fr_engine.recognize(image, mconf).await?;
     let v1_res = to_recognize_v1(res);
     Ok(Json(v1_res))
 }
@@ -236,7 +237,7 @@ pub async fn create_enrollment_v1(
 
     let mconf = MatchConfig::from(&app_state.config);
     match app_state
-        .backend
+        .fr_engine
         .create_enrollment(enroll_data, mconf)
         .await
     {

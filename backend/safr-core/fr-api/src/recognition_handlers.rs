@@ -6,7 +6,7 @@ use serde_json::Value;
 use tracing::info;
 
 use crate::{errors::AppError::Generic, extractors, AppState, WResult};
-use libfr::backend::MatchConfig;
+use libfr::backend::{FRBackend, MatchConfig};
 
 /// Spoof check flag is currently passed through to backend implementation.
 pub async fn detect_spoof_image(
@@ -17,7 +17,7 @@ pub async fn detect_spoof_image(
     let image = img_data
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
-    let res = app_state.backend.detect_face(image, true).await?;
+    let res = app_state.fr_engine.detect_face(image, true).await?;
     Ok(Json(res))
 }
 
@@ -29,7 +29,7 @@ pub async fn detect_image(
     let image = img_data
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
-    let res = app_state.backend.detect_face(image, false).await?;
+    let res = app_state.fr_engine.detect_face(image, false).await?;
     Ok(Json(res))
 }
 
@@ -52,7 +52,7 @@ pub async fn recognize(
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
 
-    let mut identities = app_state.backend.recognize(image, mconf).await?;
+    let mut identities = app_state.fr_engine.recognize(image, mconf).await?;
 
     if identities.len() > 1 {
         identities.sort_by(|a, b| {
