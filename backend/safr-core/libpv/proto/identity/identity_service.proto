@@ -1,0 +1,265 @@
+syntax = "proto3";
+
+package identity.v7;  // After changing proto, change version
+option csharp_namespace = "Paravision.Identity";
+option go_package = ".;proto";
+option java_multiple_files = true;
+option java_package = "ai.paravision.identity";
+option ruby_package = "Paravision::Identity";
+
+import "paravision_identity/proto/models.proto";
+
+// IdentityService provides CRUD endpoints for groups, identities and faces,
+// as well as lookup endpoint.
+service IdentityService {
+
+    // Service methods
+    // Empty for now method to make sure connection is established
+    rpc GetMetadata(MetadataRequest) returns (MetadataResponse) {}
+
+    // Identity endpoints
+    // creates identities
+    rpc CreateIdentities(CreateIdentitiesRequest) returns (CreateIdentitiesResponse) {}
+    // selects an identity
+    rpc GetIdentity(GetIdentityRequest) returns (GetIdentityResponse) {}
+    // deletes several identities
+    rpc DeleteIdentities(DeleteIdentitiesRequest) returns (DeleteIdentitiesResponse) {}
+    // selects many identities
+    rpc GetIdentities(GetIdentitiesRequest) returns (GetIdentitiesResponse) {}
+    // finds the identities that most closely match the given embeddings
+    rpc Lookup(LookupRequest) returns (LookupResponse) {}
+    // update an identity with groups to add and remove
+    rpc UpdateIdentityGroups(UpdateIdentityGroupsRequest) returns (UpdateIdentityGroupsResponse) {}
+
+    // Groups endpoints
+    // creates a group
+    rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse) {}
+    // selects a group
+    rpc GetGroup(GetGroupRequest) returns (GetGroupResponse) {}
+    // updates a group with a new name and identity ids
+    rpc UpdateGroup(UpdateGroupRequest) returns (UpdateGroupResponse) {}
+    // deletes a group
+    rpc DeleteGroup(DeleteGroupRequest) returns (DeleteGroupResponse) {}
+    // selects many groups
+    rpc GetGroups(GetGroupsRequest) returns (GetGroupsResponse) {}
+
+    // Face endpoints
+    // adds a new face to an identity
+    rpc AddFaces(AddFacesRequest) returns (AddFacesResponse) {}
+    // deletes a face from an identity
+    rpc DeleteFaces(DeleteFacesRequest) returns (DeleteFacesResponse) {}
+    // selects faces from an identity
+    rpc GetFaces(GetFacesRequest) returns (GetFacesResponse) {}
+    // gets a face with a given id
+    rpc GetFace(GetFaceRequest) returns (GetFaceResponse) {}
+
+    // Database operations
+    // cleans up deleted entities, potentially improving query performance and reducing resource usage
+    rpc CompactDatabase(CompactDatabaseRequest) returns (CompactDatabaseResponse) {}
+}
+
+// --- Service methods requests/responses ---
+
+message MetadataRequest {
+}
+
+message MetadataResponse {
+    string app_version = 1 [json_name = "app_version"];
+}
+
+
+// --- Identity requests/responses ---
+
+message CreateIdentitiesRequest {
+    enum Options {
+        NO_FLUSH = 0;
+        THRESHOLD_WITHIN_GROUPS = 1;
+    }
+
+    repeated string group_ids = 1;
+    repeated Embedding embeddings = 2;
+    float threshold = 3;
+    string model = 4;
+    repeated float qualities = 5;
+    repeated string external_ids = 6;
+    float scaling_factor = 7;
+    int64 buckets_limit = 8;
+    repeated Options options = 9;
+}
+
+message GetIdentityRequest {
+    string id = 1;
+    string external_id = 2;
+}
+
+message DeleteIdentitiesRequest {
+    repeated string ids = 1;
+    repeated string external_ids = 2;
+}
+
+message GetIdentitiesRequest {
+    repeated string group_ids = 1;
+    string page_token = 2;
+    int32 page_size = 3;
+}
+
+message LookupRequest {
+    repeated string group_ids = 1;
+    repeated Embedding embeddings = 2;
+    int32 limit = 3;
+    string model = 4;
+    float scaling_factor = 5;
+    int64 buckets_limit = 6;
+}
+
+message UpdateIdentityGroupsRequest {
+    string id = 1;
+    repeated string add_group_ids = 2;
+    repeated string remove_group_ids = 3;
+    optional bool flush = 4;
+}
+
+message CreateIdentitiesResponse {
+    repeated Identity identities = 1;
+}
+
+message GetIdentityResponse {
+    Identity identity = 1;
+}
+
+message GetIdentitiesResponse {
+    repeated Identity identities = 1;
+    string next_page_token = 2 [json_name = "next_page_token"];
+    int32 total_size = 3 [json_name = "total_size"];
+}
+
+message DeleteIdentitiesResponse {
+    int32 rows_affected = 1 [json_name = "rows_affected"];
+}
+
+message LookupResponse {
+    repeated LookupIdentity lookup_identities = 1 [json_name = "lookup_identities"];
+}
+
+message UpdateIdentityGroupsResponse {
+    Identity identity = 1;
+}
+
+
+// --- Groups requests/responses ---
+
+message CreateGroupRequest {
+    string name = 1;
+}
+
+message GetGroupRequest {
+    string id = 1;
+}
+
+message UpdateGroupRequest {
+    string id = 1;
+    string name = 2;
+}
+
+message DeleteGroupRequest {
+    string id = 1;
+}
+
+message GetGroupsRequest {
+    // The ids of the groups to get. This can be left unset to return all groups.
+    repeated string ids = 1;
+    string page_token = 2;
+    int32 page_size = 3;
+}
+
+message CreateGroupResponse {
+    Group group = 1;
+}
+
+message GetGroupResponse {
+    Group group = 1;
+}
+
+message UpdateGroupResponse {
+    Group group = 1;
+}
+
+message GetGroupsResponse {
+    repeated Group groups = 1;
+    string next_page_token = 2 [json_name = "next_page_token"];
+    int32 total_size = 3 [json_name = "total_size"];
+}
+
+message DeleteGroupResponse {
+    int32 rows_affected = 1 [json_name = "rows_affected"];
+}
+
+// --- Faces requests/responses ---
+
+message AddFacesRequest {
+    string identity_id = 1;
+    repeated Embedding embeddings = 2;
+    float threshold = 3;
+    string model = 4;
+    repeated float qualities = 5;
+    float scaling_factor = 6;
+    int64 buckets_limit = 7;
+    optional bool flush = 8;
+}
+
+message AddFacesResponse {
+    repeated Face faces = 1;
+}
+
+message GetFacesRequest {
+    string identity_id = 1;
+    string page_token = 2;
+    int32 page_size = 3;
+}
+
+message GetFacesResponse {
+    repeated Face faces = 1;
+    string next_page_token = 2 [json_name = "next_page_token"];
+    int32 total_size = 3 [json_name = "total_size"];
+}
+
+message GetFaceRequest {
+    string id = 1;
+}
+
+message GetFaceResponse {
+    Face face = 1;
+}
+
+message DeleteFacesRequest {
+    string identity_id = 1;
+    repeated string face_ids = 2;
+}
+
+message DeleteFacesResponse {
+    int32 rows_affected = 1 [json_name = "rows_affected"];
+}
+
+// --- Messages appearing within top-level messages ---
+
+message Embedding {
+    repeated float embedding = 1 [packed=true];
+}
+
+message LookupIdentity {
+    repeated IdentityMatch matches = 1 [json_name = "matches"];
+}
+
+message IdentityMatch {
+    Identity identity = 1;
+    float score = 2;
+}
+
+// --- Database operations requests/responses ---
+
+message CompactDatabaseRequest {
+}
+
+message CompactDatabaseResponse {
+    // empty response
+}

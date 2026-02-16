@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package identity.v7;  // After changing proto, change version
+option csharp_namespace = "Paravision.Identity";
+option go_package = ".;proto";
+option java_multiple_files = true;
+option java_package = "ai.paravision.identity";
+option ruby_package = "Paravision::Identity";
+
+import "google/protobuf/timestamp.proto";
+
+message Identity {
+    string id = 1;
+    google.protobuf.Timestamp created_at = 2 [json_name = "created_at"];
+    google.protobuf.Timestamp updated_at = 3 [json_name = "updated_at"];
+    repeated string group_ids = 4 [json_name = "group_ids"];
+    string external_id = 5 [json_name = "external_id"];
+}
+
+message Face {
+    string id = 1;
+    google.protobuf.Timestamp created_at = 2 [json_name = "created_at"];
+    string model = 3;
+    float quality = 4;
+    string identity_id = 5 [json_name = "identity_id"];
+}
+
+message Group {
+    string id = 1;
+    string name = 2;
+    google.protobuf.Timestamp created_at = 3 [json_name = "created_at"];
+    google.protobuf.Timestamp updated_at = 4 [json_name = "updated_at"];
+}

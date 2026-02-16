@@ -1,0 +1,253 @@
+// Copyright (C) 2025 Paravision, Inc. All Rights Reserved.
+//
+// This source code and any accompanying materials are the confidential
+// and proprietary information of Paravision, Inc. Unauthorized copying,
+// distribution, modification, disclosure, or use of this file, in whole
+// or in part, is strictly prohibited without prior written
+// consent from Paravision, Inc.
+
+syntax = "proto3";
+
+package processor.v7;
+option go_package = ".;proto";
+option csharp_namespace = "Paravision.Processor";
+option java_multiple_files = true;
+option java_package = "ai.paravision.processor";
+option ruby_package = "Paravision::Processor";
+
+import "processor.proto";
+
+// Processor provides endpoints to process full and cropped images
+service ProcessorService {
+  rpc ProcessFullImage(ProcessFullImageRequest) returns (ProcessFullImageResponse) {}
+  rpc ProcessFullImageFromLandmarks(ProcessFullImageFromLandmarksRequest) returns (ProcessFullImageFromLandmarksResponse) {}
+  rpc ProcessPreparedFaceImage(ProcessPreparedFaceImageRequest) returns (ProcessPreparedFaceImageResponse) {}
+  rpc GetMetadata(MetadataRequest) returns (MetadataResponse) {}
+  rpc GetScores(ScoresRequest) returns (ScoresResponse) {}
+  rpc GetUsageReport(UsageReportRequest) returns (UsageReportResponse) {}
+}
+
+message ProcessFullImageRequest {
+  enum Options {
+    BOUNDING_BOX = 0;
+    LANDMARKS = 1;
+    ALIGNED_FACE_IMAGE = 2;
+    ATTRIBUTES_IMAGES = 15;
+    DEEPFAKE_IMAGES = 19;
+    LIVENESS_IMAGE = 20;
+    AGES_V2_IMAGE = 21;
+    QUALITY = 3;
+    EMBEDDING = 4;
+    AGES = 5;
+    AGES_V2_VALIDNESS = 17;
+    AGES_V2 = 16;
+    GENDERS = 6;
+    MASK = 7;
+    HEADWEAR = 8;
+    GLASSES = 9;
+    EYES = 10;
+    SMILE = 11;
+    LIVENESS_VALIDNESS = 12;
+    LIVENESS = 13;
+    DEEPFAKE = 14;
+    DEEPFAKE_VALIDNESS = 18;
+    ADVANCED_DATA = 22;
+  }
+
+  message LivenessValidnessParameters {
+    optional float min_face_sharpness = 1;
+    optional float min_face_quality = 2;
+    optional float min_face_acceptability = 3;
+    optional int32 min_face_frontality = 4;
+    optional float max_face_mask_probability = 5;
+    optional int32 image_illumination_control = 6;
+    optional float min_face_height_pct = 7 [deprecated=true];
+    optional float max_face_size_pct = 8;
+    optional float image_boundary_width_pct = 9;
+    optional float image_boundary_height_pct = 10;
+    optional int32 min_face_size = 13;
+    optional int32 min_face_width = 12 [deprecated=true];
+    optional int32 max_face_roll_angle = 15;
+    optional bool fail_fast = 11;
+  }
+
+  message AgeValidnessParameters {
+    optional float min_face_sharpness = 1;
+    optional float min_face_quality = 2;
+    optional float min_face_acceptability = 3;
+    optional int32 min_face_frontality = 4;
+    optional float max_face_mask_probability = 5;
+    optional int32 image_illumination_control = 6;
+    optional int32 min_face_width = 7 [deprecated=true];
+    optional int32 min_face_size = 9;
+    optional float max_face_size_pct = 12;
+    optional float image_boundary_width_pct = 10;
+    optional float image_boundary_height_pct = 11;
+    optional bool fail_fast = 8;
+  }
+
+  message DeepfakeValidnessParameters {
+    optional float min_face_quality = 1;
+    optional float min_face_acceptability = 2;
+    optional int32 min_face_width = 3 [deprecated=true];
+    optional int32 min_face_size = 5;
+    optional bool fail_fast = 4;
+  }
+
+  bytes image = 1;
+  repeated Options outputs = 2;
+  bool find_most_prominent_face = 3;
+  ScoringMode scoring_mode = 4;
+  ImageSource image_source = 7;
+  LivenessValidnessParameters liveness_validness_parameters = 5;
+  AgeValidnessParameters ages_v2_validness_parameters = 6;
+  DeepfakeValidnessParameters deepfake_validness_parameters = 8;
+}
+
+message ProcessFullImageFromLandmarksRequest {
+  enum Options {
+    LANDMARKS = 0;
+    EMBEDDING = 1;
+  }
+  bytes image = 1;
+  repeated Landmarks landmarks_list = 2;
+  repeated Options outputs = 3;
+  ScoringMode scoring_mode = 4;
+}
+
+message ProcessPreparedFaceImageRequest {
+  enum Options {
+    EMBEDDING = 0;
+    AGES = 1;
+    AGES_V2 = 8;
+    GENDERS = 2;
+    MASK = 3;
+    HEADWEAR = 4;
+    GLASSES = 5;
+    EYES = 6;
+    SMILE = 7;
+    DEEPFAKE = 9;
+    LIVENESS = 10;
+    ADVANCED_DATA = 11;
+  }
+  bytes image = 1;
+  repeated bytes attributes_images = 4;
+  repeated bytes deepfake_images = 5;
+  bytes liveness_image = 6;
+  bytes ages_v2_image = 7;
+  repeated Options outputs = 2;
+  ScoringMode scoring_mode = 3;
+}
+
+message MetadataRequest {
+}
+
+message UsageReportRequest {
+}
+
+message ProcessFullImageResponse {
+  repeated Face faces = 1;
+  int32 most_prominent_face_idx = 2;
+}
+
+message ProcessFullImageFromLandmarksResponse {
+  repeated Face faces = 1;
+}
+
+message ProcessPreparedFaceImageResponse {
+  Face face = 1;
+}
+
+message MetadataResponse {
+  string engine_name = 26;
+
+  string recognition_model_name = 3;
+  string recognition_sdk_version = 8;
+  string recognition_model_version = 9;
+
+  string attributes_model_name = 11;
+  string attributes_sdk_version = 13;
+  string attributes_model_version = 14;
+
+  string liveness2d_model_name = 15;
+  string liveness2d_sdk_version = 17;
+  string liveness2d_model_version = 18;
+
+  string deepfake_model_name = 19;
+  string deepfake_sdk_version = 21;
+  string deepfake_model_version = 22;
+
+  string ages_v2_model_name = 23;
+  string ages_v2_sdk_version = 24;
+  string ages_v2_model_version = 25;
+
+  ScoringParameters standard_scoring_parameters = 5;
+  ScoringParameters enhanced_scoring_parameters = 6;
+
+  string app_version = 7;
+  int32 active_embedding_size = 10;
+
+  LivenessValidnessThresholds liveness_default_thresholds = 27;
+  AgesV2ValidnessThresholds ages_v2_default_thresholds = 28;
+  DeepfakeValidnessThresholds deepfake_default_thresholds = 29;
+}
+
+message ScoringParameters {
+    float weight = 1;
+    float bias = 2;
+    repeated int32 sizes = 3;
+}
+
+message LivenessValidnessThresholds {
+  optional float min_face_sharpness = 1;
+  optional float min_face_quality = 2;
+  optional float min_face_acceptability = 3;
+  optional int32 min_face_frontality = 4;
+  optional float max_face_mask_probability = 5;
+  optional int32 image_illumination_control = 6;
+  optional float max_face_size_pct = 7;
+  optional float image_boundary_width_pct = 8;
+  optional float image_boundary_height_pct = 9;
+  optional int32 mobile_min_face_size = 10;
+  optional int32 webcam_min_face_size = 11;
+  optional int32 max_face_roll_angle = 12;
+  optional bool fail_fast = 13;
+}
+
+message AgesV2ValidnessThresholds {
+  optional float min_face_sharpness = 1;
+  optional float min_face_quality = 2;
+  optional float min_face_acceptability = 3;
+  optional int32 min_face_frontality = 4;
+  optional float max_face_mask_probability = 5;
+  optional int32 image_illumination_control = 6;
+  optional float max_face_size_pct = 7;
+  optional float image_boundary_width_pct = 8;
+  optional float image_boundary_height_pct = 9;
+  optional int32 min_face_size = 10;
+  optional bool fail_fast = 11;
+}
+
+message DeepfakeValidnessThresholds {
+  optional float min_face_quality = 1;
+  optional float min_face_acceptability = 2;
+  optional int32 min_face_size = 3;
+  optional bool fail_fast = 4;
+}
+
+message ScoresRequest {
+  bytes embedding1 = 1;
+  bytes embedding2 = 2;
+
+  bool get_similarity = 4;
+  bool get_match = 5;
+}
+
+message ScoresResponse {
+  float similarity = 2;
+  int32 match = 3;
+}
+
+message UsageReportResponse {
+  string report = 1;
+}

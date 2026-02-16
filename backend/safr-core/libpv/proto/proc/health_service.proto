@@ -1,0 +1,30 @@
+// Copyright (C) 2025 Paravision, Inc. All Rights Reserved.
+//
+// This source code and any accompanying materials are the confidential
+// and proprietary information of Paravision, Inc. Unauthorized copying,
+// distribution, modification, disclosure, or use of this file, in whole
+// or in part, is strictly prohibited without prior written
+// consent from Paravision, Inc.
+
+syntax = "proto3";
+
+package grpc.health.v1;
+option go_package = ".;proto";
+
+// Health service provides an endpoint to query the health status of the service
+service Health {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse) {}
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  ServingStatus status = 1;
+}

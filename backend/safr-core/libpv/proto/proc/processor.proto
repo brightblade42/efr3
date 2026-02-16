@@ -1,0 +1,152 @@
+// Copyright (C) 2025 Paravision, Inc. All Rights Reserved.
+//
+// This source code and any accompanying materials are the confidential
+// and proprietary information of Paravision, Inc. Unauthorized copying,
+// distribution, modification, disclosure, or use of this file, in whole
+// or in part, is strictly prohibited without prior written
+// consent from Paravision, Inc.
+
+syntax = "proto3";
+
+package processor.v7;
+option go_package = ".;proto";
+option csharp_namespace = "Paravision.Processor";
+option java_multiple_files = true;
+option java_package = "ai.paravision.processor";
+option ruby_package = "Paravision::Processor";
+
+enum ScoringMode {
+  AUTO = 0;
+  STANDARD = 1;
+  ENHANCED = 2;
+}
+
+enum ImageSource {
+  UNKNOWN = 0;
+  WEBCAM = 1;
+  MOBILE = 2;
+}
+
+enum DeepfakeType {
+  DEEPFAKE_TYPE_UNKNOWN = 0;
+  DEEPFAKE_TYPE_FACE_SWAP = 1;
+  DEEPFAKE_TYPE_SYNTHETIC = 2;
+}
+
+message BoundingBox {
+  Point origin = 1;
+  float width = 2;
+  float height = 3;
+}
+
+message Point {
+  float x = 1;
+  float y = 2;
+}
+
+message Landmarks {
+  Point left_eye = 1;
+  Point right_eye = 2;
+  Point nose = 3;
+  Point left_mouth = 4;
+  Point right_mouth = 5;
+}
+
+message Attribute {
+  float confidence = 1;
+  string value = 2;
+  repeated AttributePair distribution = 3;
+}
+
+message AttributePair {
+  float confidence = 1;
+  string value = 2;
+}
+
+message Validness {
+  enum Feedback {
+    UNKNOWN = 0;
+    FACE_QUALITY_POOR = 1;
+    FACE_ACCEPTABILITY_POOR = 2;
+    IMG_LIGHTING_DARK = 3;
+    IMG_LIGHTING_BRIGHT = 4;
+    FACE_SIZE_SMALL = 5;
+    FACE_SIZE_LARGE = 6;
+    FACE_POS_LEFT = 7;
+    FACE_POS_RIGHT = 8;
+    FACE_POS_HIGH = 9;
+    FACE_POS_LOW = 10;
+    FACE_MASK_FOUND = 11;
+    FACE_FRONTALITY_POOR = 12;
+    FACE_SHARPNESS_POOR = 13;
+    FACE_NOT_FOUND = 14;
+    TOO_MANY_FACES = 15;
+    EYES_CLOSED = 16;
+    FACE_RES_LOW = 18;
+    FACE_ROLL_ANGLE_EXCEEDED = 19;
+    OTHER = 17;
+  }
+
+  float sharpness = 1;
+  float quality = 2;
+  float acceptability = 3;
+  float frontality = 4;
+  float image_average_pixel_value = 5;
+  float image_bright_pixel_pct = 6;
+  float image_dark_pixel_pct = 7;
+  float mask_probability = 8;
+  float height_pct = 9 [deprecated=true];
+  float width_pct = 13 [deprecated=true];
+  float face_width = 17;
+  float face_height = 14;
+  float face_roll_angle = 18;
+  float face_height_pct = 15;
+  float face_width_pct = 16;
+  repeated float position_pcts = 10;
+  bool is_valid = 11;
+  repeated Feedback feedback = 12;
+}
+
+message Liveness {
+  float liveness_probability = 1;
+}
+
+message DeepfakeDetailedScores {
+  float face_swap_x = 1;
+  float face_swap_y = 2;
+  float synthetic = 3;
+}
+
+message Deepfake {
+  float realness = 1;
+  DeepfakeType type = 2;
+  DeepfakeDetailedScores detailed_scores = 3;
+}
+
+message Face {
+  BoundingBox bounding_box = 1;
+  Landmarks landmarks = 2;
+  repeated float embedding = 3;
+  Attribute ages = 4;
+  Validness ages_v2_validness = 20;
+  float ages_v2 = 19;
+  Attribute genders = 5;
+  bytes aligned_face_image = 6;
+  repeated bytes attributes_images = 18;
+  repeated bytes deepfake_images = 22;
+  bytes liveness_image = 23;
+  bytes ages_v2_image = 24;
+  float acceptability = 7;
+  float quality = 8;
+  float mask = 9;
+  bytes embedding_template = 10;
+  Attribute headwear = 11;
+  Attribute glasses = 12;
+  Attribute eyes = 13;
+  Attribute smile = 14;
+  Validness liveness_validness = 15;
+  Liveness liveness = 16;
+  float deepfake_realness = 17 [deprecated=true];
+  Deepfake deepfake = 25;
+  Validness deepfake_validness = 21;
+}
