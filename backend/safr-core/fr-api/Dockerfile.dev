@@ -1,0 +1,19 @@
+# Use an official Rust image as a parent image
+FROM rust:latest
+
+# Set the working directory in the container to the workspace root
+WORKDIR /app
+
+# Install cargo-watch
+RUN cargo install cargo-watch
+# Copy the entire workspace into the container
+COPY . .
+
+# Build the specific project (e.g., web_api)
+# Adjust this command to build the project you're actively developing
+RUN cargo build --bin fr-api
+
+# Set the command to start the file watcher on the specific project
+#CMD ["cargo", "watch",  "fr-api", "-x", "run"]
+CMD ["cargo", "watch", "-x", "run --bin fr-api"]
+

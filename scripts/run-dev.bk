@@ -1,0 +1,70 @@
+#!/bin/env bash
+
+#strict mode
+set -euo pipefail
+IFS=$'\n\t'
+#this will run a distrobox  and run all out dev processes, deno, go, rust what have you
+#we use mutagen to keep our files in sync on a server and so we'll ssh into the machine to run this script
+#then we can contiue to develop locally and our changes will be applied on the server, code will reload or recompile on change.
+WORKING_DIR="${PWD}"
+FRAPI_PATH="backend/safr-core/fr-api"
+CAM_SERVER_PATH="backend/cam-server"
+
+#array to strore pids of started processes
+pids=()
+
+start_proc() {
+  local log_file="${!#}"    #get the last argument, the log file
+  local cmd=("${@:1:$#-1}") #get all the args up to but not including the last arg , the log file
+
+  "${cmd[@]}" >>$HOME/$log_file 2>&1 &
+  local pid=$!
+  pids+=($pid)
+  echo "Started: ${cmd[*]} (PID: $pid, Log: $log_file)"
+
+}
+
+run_api() {
+
+  cd "${FRAPI_PATH}"
+  cargo build --bin fr-api
+  start_proc cargo watch -x 'run --bin fr-api' fr_api.log
+
+  cd $WORKING_DIR
+}
+
+run_cam_server() {
+
+  cd "${CAM_SERVER_PATH}"
+  start_proc deno run --allow-all --watch http_server.ts cam_server.log
+  cd $WORKING_DIR
+}
+
+cleanup() {
+
+  echo "cleaning up and terminating started processes"
+  for pid in "${pids[@]}"; do
+    if kill -0 $pid 2>/dev/null; then
+      echo "terminating $pid"
+      kill $pid
+      wait $pid 2>/dev/null
+    fi
+  done
+  echo "cleanup complete"
+
+}
+
+trap cleanup EXIT INT TERM
+
+run_all() {
+  echo "Starting the dev process.."
+  run_api
+  run_cam_server
+  echo "Running"
+
+  wait
+
+  echo "all processes have exited"
+}
+
+run_all

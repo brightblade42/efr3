@@ -1,0 +1,11 @@
+FROM denoland/deno:alpine
+
+EXPOSE 9000
+EXPOSE 80
+WORKDIR /app
+
+ADD . /app
+
+RUN deno cache http_server.ts
+
+CMD ["run", "--allow-all", "--watch", "http_server.ts"]

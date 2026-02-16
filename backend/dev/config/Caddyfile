@@ -1,0 +1,44 @@
+#camera streaming
+bolo.eyemetric.com {
+	tls internal
+
+	@noCookie not header_regexp Cookie "fr_token=([^;]*)"
+
+	handle /auth {
+		uri strip_prefix /auth
+		reverse_proxy {env.HOST_IP}:42069
+	}
+
+	handle /assets/* {
+		reverse_proxy {env.HOST_IP}:42069
+	}
+	handle /getToken {
+		reverse_proxy {env.HOST_IP}:42069
+	}
+	handle /logout {
+		reverse_proxy {env.HOST_IP}:42069
+	}
+	handle @noCookie {
+		redir / /auth
+	}
+
+	handle {
+		forward_auth {env.HOST_IP}:42069 {
+			uri /verify-cookie
+		}
+		#camera commands and faces.
+		reverse_proxy /wss {env.HOST_IP}:9000
+		reverse_proxy /fr/* {env.HOST_IP}:3000
+		reverse_proxy /tpass/* {env.HOST_IP}:3000
+		reverse_proxy /* {env.HOST_IP}:5173
+	}
+
+	#rtsp-webrtc transcoding server
+	handle_path /cams/* {
+		reverse_proxy {env.HOST_IP}:8083
+	}
+
+	
+	#root * /srv/bolo
+	#file_server
+}

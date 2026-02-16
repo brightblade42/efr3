@@ -1,0 +1,45 @@
+mod tpass;
+
+use crate::{EnrollData, FRResult, Image, SearchBy};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+//some external api based system that holds information about the people that need recognizing.
+#[async_trait]
+pub trait Remote: Send + Sync {
+    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value>;
+    async fn unregister_enrollment(&self) -> FRResult<Value>;
+    //async fn search(&self, enroll_data: &EnrollData) -> FRResult<Vec<Value>>;
+    async fn search(&self, enroll_data: &EnrollData) -> FRResult<Vec<SearchResult>>;
+    async fn search_one(
+        &self,
+        search: SearchBy,
+        include_image: bool,
+    ) -> FRResult<Option<SearchResult>>;
+    async fn search_many(&self, search: SearchBy, include_img: bool) -> FRResult<Vec<Value>>;
+    //async fn create_profile(&self, some_profile_info) -> FRResult;
+}
+
+//package up what is returned from a remote.
+
+//#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
+pub struct SearchResult {
+    pub image: Option<Image>,
+    pub id: Option<u64>,
+    pub details: Option<Value>, //json, let it be what it be.
+}
+
+///A registration pair is the combination of our local fr_id and a client's external id.
+///This combination is what binds our local fr info to a person.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegistrationPair {
+    pub ext_id: u64,
+    pub fr_id: String,
+}
+
+impl RegistrationPair {
+    pub fn new(fr_id: String, ext_id: u64) -> Self {
+        RegistrationPair { ext_id, fr_id }
+    }
+}

@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+"fr-api",
+ "libpv",
+ "cv-cli",
+ "libtpass",
+ "libfr"
+]
+
+

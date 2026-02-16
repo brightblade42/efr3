@@ -1,0 +1,42 @@
+target
+**/target/
+.idea
+index
+*.csv
+*.tar.gz
+Cargo.lock
+.DS_Store
+app
+.vim
+.idea
+.vs
+.svelte-kit
+obj
+bin
+build
+packages
+package
+node_modules
+publish
+*.orig
+*.DotSettings.user
+appsettings.Development.json
+riderModule.iml
+_ReSharper.Caches
+.sveltekit
+#boundary ---
+.env
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+fonts
+
+.fake
+
+# local build/debug artifacts
+*.swp
+backend/auth/tmp/
+
+# local/dev private keys
+backend/dev/certs/*.key

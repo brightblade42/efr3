@@ -1,0 +1,51 @@
+{
+	"name": "cam-app",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"lint": "prettier --plugin-search-dir . --check . && eslint .",
+		"format": "prettier --plugin-search-dir . --write ."
+	},
+	"devDependencies": {
+		"@rgossiaux/svelte-headlessui": "^2.0.0",
+		"@rgossiaux/svelte-heroicons": "^0.1.2",
+		"@sveltejs/adapter-auto": "^2.0.0",
+		"@sveltejs/adapter-static": "^2.0.2",
+		"@sveltejs/kit": "^1.20.4",
+		"@tailwindcss/aspect-ratio": "^0.4.2",
+		"@tailwindcss/forms": "^0.5.4",
+		"@tailwindcss/typography": "^0.5.9",
+		"@typescript-eslint/eslint-plugin": "^5.45.0",
+		"@typescript-eslint/parser": "^5.45.0",
+		"@vite-pwa/sveltekit": "^0.2.7",
+		"autoprefixer": "^10.4.14",
+		"eslint": "^8.28.0",
+		"eslint-config-prettier": "^8.5.0",
+		"eslint-plugin-svelte": "^2.30.0",
+		"flowbite-svelte": "^0.44.15",
+		"postcss": "^8.4.26",
+		"prettier": "^2.8.0",
+		"prettier-plugin-svelte": "^2.10.1",
+		"svelte": "^4.0.0",
+		"svelte-check": "^3.4.3",
+		"tailwindcss": "^3.3.3",
+		"tslib": "^2.4.1",
+		"typescript": "^5.0.0",
+		"vite": "^4.3.6"
+	},
+	"type": "module",
+	"dependencies": {
+		"@fortawesome/pro-duotone-svg-icons": "file:../../../assets/pkg/fortawesome-pro-duotone-svg-icons-5.15.3.tgz",
+		"@fortawesome/pro-light-svg-icons": "file:../../../assets/pkg/fortawesome-pro-light-svg-icons-5.15.3.tgz",
+		"@fortawesome/pro-regular-svg-icons": "file:../../../assets/pkg/fortawesome-pro-regular-svg-icons-5.15.3.tgz",
+		"@fortawesome/pro-solid-svg-icons": "file:../../../assets/pkg/fortawesome-pro-solid-svg-icons-5.15.3.tgz",
+		"media-chrome": "^1.1.5",
+		"sortablejs": "^1.15.0",
+		"svelte-fa": "^3.0.4"
+	}
+}

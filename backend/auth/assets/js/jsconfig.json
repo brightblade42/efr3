@@ -1,0 +1,12 @@
+{
+    "compilerOptions": {
+        "target": "es6",  // or whichever ECMAScript version you use
+        "module": "ES6", //es6", "none", etc., depending on your module system
+    },
+    "include": [
+        "./**/*"  // Adjust the path to where your JS files are located
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

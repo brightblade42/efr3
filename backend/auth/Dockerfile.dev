@@ -1,0 +1,24 @@
+# Use the latest Go version
+FROM golang:latest
+
+# Set the working directory inside the container
+WORKDIR /app
+
+RUN go install github.com/a-h/templ/cmd/templ@latest
+# Install air for live reloading
+RUN go install github.com/cosmtrek/air@latest
+
+# Copy go.mod and go.sum files (if they exist)
+COPY go.mod go.sum ./
+
+# Download necessary Go modules
+RUN go mod download
+
+# Copy the source code into the container
+COPY . .
+
+# Expose port (adjust if needed)
+EXPOSE 8080
+
+# Command to run the application using air
+CMD ["air"]
