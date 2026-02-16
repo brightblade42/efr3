@@ -77,7 +77,7 @@ impl Remote for RemoteRuntime {
 
 #[derive(Clone)]
 pub enum FREngine {
-    Paravision(PVBackend<RemoteRuntime>),
+    Paravision(PVBackend),
 }
 
 impl FREngine {
@@ -86,13 +86,10 @@ impl FREngine {
         proc_url: String,
         ident_url: String,
         db: PgPool,
-        remote: RemoteRuntime,
     ) -> Result<Self, String> {
         let raw = backend.unwrap_or_else(|| DEFAULT_BACKEND.to_string());
         match raw.to_ascii_lowercase().as_str() {
-            "paravision" | "pv" => Ok(Self::Paravision(PVBackend::new(
-                proc_url, ident_url, db, remote,
-            ))),
+            "paravision" | "pv" => Ok(Self::Paravision(PVBackend::new(proc_url, ident_url, db))),
             _ => Err(format!(
                 "unsupported FR_BACKEND '{}'; supported values: paravision",
                 raw
@@ -112,9 +109,12 @@ impl FRBackend for FREngine {
         &self,
         enroll_data: EnrollData,
         config: MatchConfig,
+        ext_id: Option<u64>,
     ) -> FRResult<Value> {
         match self {
-            Self::Paravision(backend) => backend.create_enrollment(enroll_data, config).await,
+            Self::Paravision(backend) => {
+                backend.create_enrollment(enroll_data, config, ext_id).await
+            }
         }
     }
 

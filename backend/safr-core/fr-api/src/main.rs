@@ -2,6 +2,7 @@ mod attendance_handlers;
 mod enrollment_handlers;
 mod errors;
 mod extractors;
+mod fr_service;
 mod profile_handlers;
 mod recognition_handlers;
 mod runtime;
@@ -27,6 +28,7 @@ use tracing::{error, info};
 
 //use tokio::sync::Mutex;
 use crate::errors::AppError;
+use crate::fr_service::FRService;
 use crate::runtime::{FREngine, RemoteRuntime};
 use libfr::backend::MatchConfig;
 
@@ -37,7 +39,7 @@ type WResult<T> = Result<T, AppError>;
 // Backend/remote are selected once at startup via env defaults.
 #[derive(Clone)]
 struct AppState {
-    fr_engine: Arc<FREngine>,
+    fr_service: Arc<FRService>,
     tpass_client: Arc<TPassClient>,
     config: Config,
 }
@@ -140,13 +142,13 @@ async fn main() {
         }
     };
     let remote_name = remote.name();
+    let remote = Arc::new(remote);
 
     let fr_engine = match FREngine::from_env(
         fr_backend_env.clone(),
         config.pv_proc_url.clone(),
         config.pv_ident_url.clone(),
         db_pool,
-        remote,
     ) {
         Ok(fr_engine) => fr_engine,
         Err(e) => {
@@ -164,8 +166,10 @@ async fn main() {
     info!("BACKEND: {}", fr_engine.name());
     info!("REMOTE: {}", remote_name);
 
+    let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote));
+
     let app_state = AppState {
-        fr_engine: Arc::new(fr_engine),
+        fr_service,
         tpass_client,
         config: config.clone(), //some tpass specific calls
     };
@@ -335,7 +339,7 @@ impl From<&Config> for MatchConfig {
 async fn detect_image_embed(State(app_state): State<AppState>, multipart: Multipart) -> WResult<Json<Value>> {
 
     let img_data = extract_image_data(multipart).await?;
-    let res  = app_state.fr_engine.detect_image_embed(img_data.image.unwrap()).await?;
+    let res  = app_state.fr_service.detect_image_embed(img_data.image.unwrap()).await?;
     Ok(Json(res))
 }
  */
