@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use base64::{engine::general_purpose, Engine as _};
+use bytes::Bytes;
 use libfr::{
     backend::{FRBackend, MatchConfig},
     remote::{RegistrationPair, Remote},
@@ -33,8 +33,7 @@ impl FRService {
                 .as_ref()
                 .and_then(|result| result.image.as_ref())
             {
-                Some(Image::Binary(bin)) => Some(general_purpose::STANDARD.encode(bin)),
-                Some(Image::Base64(b64)) => Some(b64.clone()),
+                Some(Image::Binary(bin)) => Some(bin.clone()),
                 None => None,
             };
         }
@@ -105,12 +104,12 @@ impl FRService {
         self.fr_engine.reset_enrollments().await
     }
 
-    pub async fn detect_face(&self, b64: String, spoof_check: bool) -> FRResult<Value> {
-        self.fr_engine.detect_face(b64, spoof_check).await
+    pub async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
+        self.fr_engine.detect_face(image, spoof_check).await
     }
 
-    pub async fn recognize(&self, b64: String, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
-        let mut fr_identities = self.fr_engine.recognize(b64, config).await?;
+    pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
+        let mut fr_identities = self.fr_engine.recognize(image, config).await?;
 
         let ext_ids: Vec<IDKind> = fr_identities
             .iter()
@@ -144,8 +143,8 @@ impl FRService {
         Ok(fr_identities)
     }
 
-    pub async fn add_face(&self, fr_id: &str, b64: String) -> FRResult<Value> {
-        self.fr_engine.add_face(fr_id, b64).await
+    pub async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value> {
+        self.fr_engine.add_face(fr_id, image).await
     }
 
     pub async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<Value> {

@@ -101,7 +101,7 @@ impl From<serde_json::Error> for FRError {
 //image and details are sent in a request using multipart formdata which we parse
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EnrollData {
-    pub image: Option<String>,
+    pub image: Option<Bytes>,
     pub details: Option<EnrollDetails>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -114,10 +114,9 @@ pub enum EnrollDetails {
     TPass(Value), //TODO: this will be what NewProfileRequest contains, the tpass minimum.
 }
 
-//images come in two flavors, binary and base64 encoding
+//internal image transport is binary-only
 #[derive(Debug)]
 pub enum Image {
-    Base64(String),
     Binary(Bytes),
 }
 

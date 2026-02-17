@@ -1,6 +1,8 @@
 use super::{FRBackend, FRResult, MatchConfig};
 use crate::{utils, EnrollData, EnrollDetails, FRError};
 use crate::{FRIdentity, Face, MinDetails, PossibleMatch};
+use base64::{engine::general_purpose, Engine as _};
+use bytes::Bytes;
 use libpv::types::{
     AddFaceRequest, CreateIdentitiesRequest, DeleteFaceRequest, DeleteIdentitiesRequest, Embedding,
     GetFacesRequest, Identity, LookupRequest, LookupResponse, ProcessFullImageRequest,
@@ -133,7 +135,7 @@ impl PVBackend {
         is_duped
     }
 
-    async fn enroll_db(
+    pub(crate) async fn enroll_db(
         &self,
         fr_data: &Identity,
         details: &EnrollDetails,
@@ -177,7 +179,7 @@ impl PVBackend {
     }
 
     ///delete an enrollment by the id given from the fr api.
-    async fn delete_enrollment_db(&self, fr_id: &str) -> FRResult<u64> {
+    pub(crate) async fn delete_enrollment_db(&self, fr_id: &str) -> FRResult<u64> {
         let res = sqlx::query("DELETE from paravision.enrollment where fr_id = $1")
             .bind(fr_id)
             .execute(&self.db)
@@ -196,7 +198,7 @@ impl PVBackend {
         Ok(rows)
     }
 
-    async fn delete_all_enrollments_db(&self) -> FRResult<u64> {
+    pub(crate) async fn delete_all_enrollments_db(&self) -> FRResult<u64> {
         let res = sqlx::query("Delete from paravision.enrollment")
             .execute(&self.db)
             .await?;
@@ -208,7 +210,7 @@ impl PVBackend {
     ///if there's an error during enrollment, we log it.
     ///depending on the kind of error we may be able to retry later by pulling
     ///from the log table.
-    async fn log_enroll_err(&self, action: &str, e: &FRError, details: &EnrollDetails) {
+    pub(crate) async fn log_enroll_err(&self, action: &str, e: &FRError, details: &EnrollDetails) {
         error!("Enrollment error: {}", e.message); //what if the log goes wrong?
         let e_val = match serde_json::to_value(e) {
             Ok(v) => v,
@@ -282,7 +284,7 @@ impl PVBackend {
         Ok(())
     }
 
-    async fn log_delete_err(&self, action: &str, e: &FRError, details: Option<Value>) {
+    pub(crate) async fn log_delete_err(&self, action: &str, e: &FRError, details: Option<Value>) {
         error!("Delete Enrollment error: {}", e.message); //what if the log goes wrong?
         let e_val = match serde_json::to_value(e) {
             Ok(v) => v,
@@ -316,7 +318,7 @@ impl PVBackend {
 
     ///convert the data from paravision specific to our own format and add some
     ///basic detail information that was provided during enrollment.
-    async fn to_fr_identities(
+    pub(crate) async fn to_fr_identities(
         &self,
         lookups: &[LookupResponse],
         min_match: f32,
@@ -592,13 +594,13 @@ impl FRBackend for PVBackend {
 
     ///This returns attributes about a face in an image
     ///this is different than an identity that a face represents which requires recognition
-    async fn detect_face(&self, b64: String, spoof_check: bool) -> FRResult<Value> {
+    async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
         if spoof_check {
             warn!("spoof check was requested but no avail in paravision v6");
         }
 
         let img_req = ProcessFullImageRequest {
-            image: b64,
+            image: general_purpose::STANDARD.encode(image),
             ..ProcessFullImageRequest::default()
         };
 
@@ -612,10 +614,9 @@ impl FRBackend for PVBackend {
         Ok(serde_json::to_value(faces)?)
     }
 
-    ///take a base64 image and recognize all the dang faces!
-    async fn recognize(&self, b64: String, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
+    async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
         let img_req = ProcessFullImageRequest {
-            image: b64,
+            image: general_purpose::STANDARD.encode(image),
             ..ProcessFullImageRequest::default()
         };
 
@@ -655,9 +656,9 @@ impl FRBackend for PVBackend {
         Ok(fr_idents)
     }
 
-    async fn add_face(&self, fr_id: &str, b64: String) -> FRResult<Value> {
+    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value> {
         let img_req = ProcessFullImageRequest {
-            image: b64,
+            image: general_purpose::STANDARD.encode(image),
             ..ProcessFullImageRequest::default()
         };
         let img_res = self.api.process_image(img_req).await?;

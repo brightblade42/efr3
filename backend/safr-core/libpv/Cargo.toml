@@ -16,7 +16,14 @@ futures = { version = "0.3" }
 reqwest = { version = "0.13.2", features = ["json", "multipart", "form", "query"] }
 bytes = { version="1", features=["serde"]}
 base64 = "0.22.1"
+tonic = { version = "0.12", features = ["transport"] }
+prost = "0.13"
+prost-types = "0.13"
 #sqlx = { version ="0.6", features=["runtime-tokio-native-tls","postgres", "uuid", "chrono", "macros","json", "time"]}
 tracing = "0.1"
 thiserror = "1.0.69"
 # tracing-subscriber = { version ="0.3", features=["env-filter"]}
+
+[build-dependencies]
+tonic-build = "0.12"
+protoc-bin-vendored = "3"

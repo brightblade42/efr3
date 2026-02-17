@@ -2,7 +2,6 @@ use axum::{
     extract::{multipart::Multipart, Query, State},
     Json,
 };
-use base64::{engine::general_purpose, Engine as _};
 use libfr::{
     backend::MatchConfig, remote::Remote, EnrollData, EnrollDetails, FRIdentity, IDKind, Image,
     SearchBy,
@@ -209,17 +208,12 @@ pub async fn create_enrollment_v1(
                 "An image is required for enrollment.".to_string(),
             ));
         }
-        Some(img) => match img {
-            Image::Binary(bin) => match bin.len() {
-                0 => {
-                    return Err(AppError::Generic(
-                        "binary image has no size. can't enroll.".to_string(),
-                    ));
-                }
-                _ => Some(general_purpose::STANDARD.encode(bin)),
-            },
-            Image::Base64(b64) => Some(b64),
-        },
+        Some(Image::Binary(bin)) if !bin.is_empty() => Some(bin),
+        Some(Image::Binary(_)) => {
+            return Err(AppError::Generic(
+                "binary image has no size. can't enroll.".to_string(),
+            ));
+        }
     };
 
     let dets = s_res.details.ok_or_else(|| {

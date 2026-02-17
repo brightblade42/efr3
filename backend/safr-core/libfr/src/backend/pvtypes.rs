@@ -3,6 +3,7 @@
 
 use crate::EnrollData;
 use crate::Face;
+use base64::{engine::general_purpose, Engine as _};
 
 use libpv::types::ProcessFullImageRequest;
 
@@ -10,7 +11,10 @@ use libpv::types::ProcessFullImageRequest;
 impl From<EnrollData> for ProcessFullImageRequest {
     fn from(data: EnrollData) -> Self {
         ProcessFullImageRequest {
-            image: data.image.unwrap_or_default(),
+            image: data
+                .image
+                .map(|bytes| general_purpose::STANDARD.encode(bytes))
+                .unwrap_or_default(),
             outputs: Some(vec![
                 "EMBEDDING".to_string(),
                 "QUALITY".to_string(),
@@ -24,7 +28,11 @@ impl From<EnrollData> for ProcessFullImageRequest {
 impl From<&EnrollData> for ProcessFullImageRequest {
     fn from(data: &EnrollData) -> Self {
         ProcessFullImageRequest {
-            image: data.image.as_ref().cloned().unwrap_or_default(),
+            image: data
+                .image
+                .as_ref()
+                .map(|bytes| general_purpose::STANDARD.encode(bytes))
+                .unwrap_or_default(),
             outputs: Some(vec![
                 "EMBEDDING".to_string(),
                 "QUALITY".to_string(),

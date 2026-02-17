@@ -74,8 +74,8 @@ impl Config {
         let port = env::var("FRAPI_PORT").unwrap_or("3000".to_string());
 
         Self {
-            pv_ident_url: env::var("PV_IDENT_URL").unwrap_or(format!("{}:8080", dev_url)),
-            pv_proc_url: env::var("PV_PROC_URL").unwrap_or(format!("{}:8081/v6", dev_url)),
+            pv_ident_url: env::var("PV_IDENT_URL").unwrap_or(format!("http://{}:5656", dev_url)),
+            pv_proc_url: env::var("PV_PROC_URL").unwrap_or(format!("http://{}:50051", dev_url)),
             db_addr: env::var("SAFR_DB_ADDR").unwrap_or("localhost".to_string()),
             db_port: env::var("SAFR_DB_PORT").unwrap_or("5433".to_string()),
             db_user: env::var("SAFR_DB_USER").unwrap_or("admin".to_string()),

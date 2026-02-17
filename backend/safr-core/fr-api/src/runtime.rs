@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
 use libfr::{
-    backend::{paravision::PVBackend, FRBackend, MatchConfig},
+    backend::{paravision::PVBackend, paravision_grpc::PVGrpcBackend, FRBackend, MatchConfig},
     remote::{RegistrationPair, Remote, SearchResult},
     EnrollData, FRIdentity, FRResult, SearchBy,
 };
@@ -9,7 +10,7 @@ use libtpass::api::TPassClient;
 use serde_json::Value;
 use sqlx::PgPool;
 
-const DEFAULT_BACKEND: &str = "paravision";
+const DEFAULT_BACKEND: &str = "paravision-grpc";
 const DEFAULT_REMOTE: &str = "tpass";
 
 #[derive(Clone)]
@@ -77,6 +78,7 @@ impl Remote for RemoteRuntime {
 
 #[derive(Clone)]
 pub enum FREngine {
+    ParavisionGrpc(PVGrpcBackend),
     Paravision(PVBackend),
 }
 
@@ -89,9 +91,12 @@ impl FREngine {
     ) -> Result<Self, String> {
         let raw = backend.unwrap_or_else(|| DEFAULT_BACKEND.to_string());
         match raw.to_ascii_lowercase().as_str() {
+            "paravision-grpc" | "pv-grpc" => Ok(Self::ParavisionGrpc(PVGrpcBackend::new(
+                proc_url, ident_url, db,
+            ))),
             "paravision" | "pv" => Ok(Self::Paravision(PVBackend::new(proc_url, ident_url, db))),
             _ => Err(format!(
-                "unsupported FR_BACKEND '{}'; supported values: paravision",
+                "unsupported FR_BACKEND '{}'; supported values: paravision-grpc, paravision",
                 raw
             )),
         }
@@ -99,6 +104,7 @@ impl FREngine {
 
     pub fn name(&self) -> &'static str {
         match self {
+            Self::ParavisionGrpc(_) => "paravision-grpc",
             Self::Paravision(_) => "paravision",
         }
     }
@@ -112,6 +118,9 @@ impl FRBackend for FREngine {
         ext_id: Option<u64>,
     ) -> FRResult<Value> {
         match self {
+            Self::ParavisionGrpc(backend) => {
+                backend.create_enrollment(enroll_data, config, ext_id).await
+            }
             Self::Paravision(backend) => {
                 backend.create_enrollment(enroll_data, config, ext_id).await
             }
@@ -120,60 +129,70 @@ impl FRBackend for FREngine {
 
     async fn delete_enrollment(&self, fr_id: &str) -> FRResult<Value> {
         match self {
+            Self::ParavisionGrpc(backend) => backend.delete_enrollment(fr_id).await,
             Self::Paravision(backend) => backend.delete_enrollment(fr_id).await,
         }
     }
 
     async fn get_enrollment_metadata(&self) -> FRResult<Value> {
         match self {
+            Self::ParavisionGrpc(backend) => backend.get_enrollment_metadata().await,
             Self::Paravision(backend) => backend.get_enrollment_metadata().await,
         }
     }
 
     async fn get_enrollment_roster(&self) -> FRResult<Value> {
         match self {
+            Self::ParavisionGrpc(backend) => backend.get_enrollment_roster().await,
             Self::Paravision(backend) => backend.get_enrollment_roster().await,
         }
     }
 
     async fn reset_enrollments(&self) -> FRResult<Value> {
         match self {
+            Self::ParavisionGrpc(backend) => backend.reset_enrollments().await,
             Self::Paravision(backend) => backend.reset_enrollments().await,
         }
     }
 
-    async fn detect_face(&self, b64: String, spoof_check: bool) -> FRResult<Value> {
+    async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
         match self {
-            Self::Paravision(backend) => backend.detect_face(b64, spoof_check).await,
+            Self::ParavisionGrpc(backend) => backend.detect_face(image.clone(), spoof_check).await,
+            Self::Paravision(backend) => backend.detect_face(image, spoof_check).await,
         }
     }
 
-    async fn recognize(&self, b64: String, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
+    async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
         match self {
-            Self::Paravision(backend) => backend.recognize(b64, config).await,
+            Self::ParavisionGrpc(backend) => backend.recognize(image.clone(), config).await,
+            Self::Paravision(backend) => backend.recognize(image, config).await,
         }
     }
 
-    async fn add_face(&self, fr_id: &str, b64: String) -> FRResult<Value> {
+    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value> {
         match self {
-            Self::Paravision(backend) => backend.add_face(fr_id, b64).await,
+            Self::ParavisionGrpc(backend) => backend.add_face(fr_id, image.clone()).await,
+            Self::Paravision(backend) => backend.add_face(fr_id, image).await,
         }
     }
 
     async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<Value> {
         match self {
+            Self::ParavisionGrpc(backend) => backend.delete_face(fr_id, face_id).await,
             Self::Paravision(backend) => backend.delete_face(fr_id, face_id).await,
         }
     }
 
     async fn get_face_info(&self, fr_id: &str) -> FRResult<Value> {
         match self {
+            Self::ParavisionGrpc(backend) => backend.get_face_info(fr_id).await,
             Self::Paravision(backend) => backend.get_face_info(fr_id).await,
         }
     }
 
     async fn get_enrollments_by_last_name(&self, name: &str) -> FRResult<Vec<Value>> {
         match self {
+            Self::ParavisionGrpc(backend) => backend.get_enrollments_by_last_name(name).await,
             Self::Paravision(backend) => backend.get_enrollments_by_last_name(name).await,
         }
     }
@@ -185,6 +204,9 @@ impl FRBackend for FREngine {
         location: &str,
     ) -> FRResult<()> {
         match self {
+            Self::ParavisionGrpc(backend) => {
+                backend.log_identity(fr_identity, extra, location).await
+            }
             Self::Paravision(backend) => backend.log_identity(fr_identity, extra, location).await,
         }
     }

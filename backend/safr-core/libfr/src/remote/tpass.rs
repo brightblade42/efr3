@@ -87,7 +87,7 @@ impl Remote for TPassClient {
                         })?;
 
                         let sr = SearchResult {
-                            image: Some(Image::Base64(image)),
+                            image: Some(Image::Binary(image)),
                             details: Some(tpd.clone()),
                             id: ccode,
                         };

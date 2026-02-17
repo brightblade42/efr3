@@ -1,9 +1,9 @@
 use axum::extract::multipart::Multipart;
 use base64::{engine::general_purpose, Engine as _};
+use bytes::Bytes;
 use libfr::EnrollData;
 use libtpass::types::NewProfileRequest;
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use tracing::{debug, info};
 
 use crate::errors::AppError;
@@ -13,11 +13,11 @@ type WResult<T> = Result<T, AppError>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageOpts {
-    pub top_matches: u8, //how many potential face matches to include (decreasing conf)
+    pub top_matches: u8,
     pub include_detected_faces: bool,
-    pub on_match: String,     //action to take on a match
-    pub min_match: f32,       //threshold of confidence
-    pub rec_location: String, //camera stream name
+    pub on_match: String,
+    pub min_match: f32,
+    pub rec_location: String,
 }
 
 impl Default for ImageOpts {
@@ -26,16 +26,22 @@ impl Default for ImageOpts {
             top_matches: 1,
             include_detected_faces: false,
             on_match: "id_only".to_string(),
-            min_match: 0.90, //get this from env
+            min_match: 0.90,
             rec_location: "".to_string(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct ImageData {
-    pub image: Option<String>,
+    pub image: Option<Bytes>,
     pub opts: Option<ImageOpts>,
+}
+
+#[derive(Debug)]
+pub struct NewProfileEnrollData {
+    pub profile: NewProfileRequest,
+    pub image: Bytes,
 }
 
 /// Extract request parameters and return ImageData struct.
@@ -53,12 +59,9 @@ pub async fn extract_image_data_v1(mut multipart: Multipart, min_match: f32) -> 
     {
         match field.name().unwrap_or("") {
             "image" => {
+                let content_type = field.content_type().map(|item| item.to_string());
                 let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-
-                image_data.image = match bytes.len() {
-                    0 => None,
-                    _ => Some(general_purpose::URL_SAFE.encode(bytes)),
-                };
+                image_data.image = parse_image_field(bytes, content_type.as_deref())?;
             }
 
             "opts" => {
@@ -100,22 +103,9 @@ pub async fn extract_image_data(mut multipart: Multipart, min_match: f32) -> WRe
     {
         match field.name().unwrap_or("") {
             "image" => {
-                image_data.image = match field.content_type() {
-                    Some(x) if x.starts_with("image") => {
-                        let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                        match bytes.len() {
-                            0 => None,
-                            _ => Some(general_purpose::STANDARD.encode(bytes)),
-                        }
-                    }
-                    _ => {
-                        let image_txt = field.text().await.map_err(|x| Generic(x.to_string()))?;
-                        match image_txt.len() {
-                            0 => None,
-                            _ => Some(image_txt),
-                        }
-                    }
-                }
+                let content_type = field.content_type().map(|item| item.to_string());
+                let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
+                image_data.image = parse_image_field(bytes, content_type.as_deref())?;
             }
 
             "opts" => {
@@ -157,11 +147,9 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
     {
         match field.name().unwrap_or("") {
             "image" => {
+                let content_type = field.content_type().map(|item| item.to_string());
                 let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                match bytes.len() {
-                    0 => enroll_data.image = None,
-                    _ => enroll_data.image = Some(general_purpose::STANDARD.encode(bytes)),
-                };
+                enroll_data.image = parse_image_field(bytes, content_type.as_deref())?;
             }
             "details" => {
                 debug!("received details for enrollment");
@@ -176,25 +164,19 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
         }
     }
 
-    match enroll_data.borrow() {
-        EnrollData {
-            image: Some(_),
-            details: None,
-        } => Err(Generic(
+    match (&enroll_data.image, &enroll_data.details) {
+        (Some(_), None) => Err(Generic(
             "You need to provide details to know who this person is!".to_string(),
         )),
-        EnrollData {
-            image: None,
-            details: None,
-        } => Err(Generic(
+        (None, None) => Err(Generic(
             "Nothing was provided! What would we be enrolling?".to_string(),
         )),
         _ => Ok(enroll_data),
     }
 }
 
-pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewProfileRequest> {
-    let mut image: Option<String> = None;
+pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewProfileEnrollData> {
+    let mut image: Option<Bytes> = None;
     let mut profile: Option<NewProfileRequest> = None;
 
     while let Some(field) = multipart
@@ -204,8 +186,9 @@ pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewPro
     {
         match field.name().unwrap_or("") {
             "image" => {
+                let content_type = field.content_type().map(|item| item.to_string());
                 let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                image = Some(general_purpose::STANDARD.encode(bytes));
+                image = parse_image_field(bytes, content_type.as_deref())?;
             }
             "profile" => {
                 info!("got new profile request");
@@ -225,19 +208,63 @@ pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewPro
         }
     }
 
-    if image.is_none() {
-        return Err(Generic(
-            "Creating a profile requires an image which was not provided".to_string(),
-        ));
-    }
+    let image = image.ok_or_else(|| {
+        Generic("Creating a profile requires an image which was not provided".to_string())
+    })?;
 
     match profile {
-        Some(mut p) => {
-            p.image = image;
-            Ok(p)
+        Some(mut profile) => {
+            profile.image = Some(general_purpose::STANDARD.encode(&image));
+            Ok(NewProfileEnrollData { profile, image })
         }
         None => Err(Generic(
             "Creating a profile requires personal info which was not provided".to_string(),
         )),
     }
+}
+
+fn parse_image_field(raw_bytes: Bytes, content_type: Option<&str>) -> WResult<Option<Bytes>> {
+    if raw_bytes.is_empty() {
+        return Ok(None);
+    }
+
+    if content_type.is_some_and(|item| item.starts_with("image")) {
+        return Ok(Some(raw_bytes));
+    }
+
+    match std::str::from_utf8(&raw_bytes) {
+        Ok(text) => decode_base64_image(text).map(Some),
+        Err(_) => Ok(Some(raw_bytes)),
+    }
+}
+
+fn decode_base64_image(input: &str) -> WResult<Bytes> {
+    let cleaned = input.trim();
+    if cleaned.is_empty() {
+        return Err(Generic("image field was empty".to_string()));
+    }
+
+    let payload = cleaned
+        .split_once(',')
+        .filter(|(prefix, _)| {
+            prefix.to_ascii_lowercase().contains(";base64")
+                || prefix.to_ascii_lowercase().starts_with("data:")
+        })
+        .map_or(cleaned, |(_, value)| value)
+        .trim();
+
+    for engine in [
+        &general_purpose::STANDARD,
+        &general_purpose::STANDARD_NO_PAD,
+        &general_purpose::URL_SAFE,
+        &general_purpose::URL_SAFE_NO_PAD,
+    ] {
+        if let Ok(decoded) = engine.decode(payload) {
+            return Ok(Bytes::from(decoded));
+        }
+    }
+
+    Err(Generic(
+        "image field was text but was not valid base64".to_string(),
+    ))
 }

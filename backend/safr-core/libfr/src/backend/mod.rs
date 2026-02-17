@@ -1,6 +1,8 @@
 pub mod paravision;
+pub mod paravision_grpc;
 mod pvtypes;
 use crate::{EnrollData, FRIdentity, FRResult};
+use bytes::Bytes;
 use serde_json::Value;
 
 #[allow(async_fn_in_trait)]
@@ -16,10 +18,10 @@ pub trait FRBackend: Send + Sync {
     async fn get_enrollment_metadata(&self) -> FRResult<Value>;
     async fn get_enrollment_roster(&self) -> FRResult<Value>; //get a list of all the enrollments, or a subset for paging
     async fn reset_enrollments(&self) -> FRResult<Value>; //delete the whole damn thing. away with you.
-    async fn detect_face(&self, b64: String, spoof_check: bool) -> FRResult<Value>;
-    async fn recognize(&self, b64: String, config: MatchConfig) -> FRResult<Vec<FRIdentity>>;
+    async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value>;
+    async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>>;
 
-    async fn add_face(&self, fr_id: &str, b64: String) -> FRResult<Value>;
+    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value>;
     async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<Value>;
     async fn get_face_info(&self, fr_id: &str) -> FRResult<Value>;
     async fn get_enrollments_by_last_name(&self, name: &str) -> FRResult<Vec<Value>>;

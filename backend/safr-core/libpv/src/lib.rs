@@ -1,4 +1,6 @@
 pub mod errors;
+pub mod identity_grpc;
+pub mod proc_grpc;
 pub mod types;
 //we may want these up in the backend
 use base64::{engine::general_purpose, Engine as _};

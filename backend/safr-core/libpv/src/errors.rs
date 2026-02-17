@@ -3,6 +3,7 @@
 use reqwest::{Error as ReqwestError, StatusCode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tonic::{transport::Error as TonicTransportError, Code as TonicCode, Status as TonicStatus};
 
 //Error from api service may be app errors contained in a good response, or
 // an service level http error. We will treat them the same
@@ -55,6 +56,46 @@ impl From<serde_json::Error> for PVApiError {
         let mut pv_err = PVApiError::new();
         pv_err.message = e.to_string();
         pv_err
+    }
+}
+
+impl From<TonicStatus> for PVApiError {
+    fn from(status: TonicStatus) -> Self {
+        let mut pv_err = PVApiError::new();
+        pv_err.code = tonic_code_to_http(status.code());
+        pv_err.message = status.message().to_string();
+        pv_err
+    }
+}
+
+impl From<TonicTransportError> for PVApiError {
+    fn from(err: TonicTransportError) -> Self {
+        let mut pv_err = PVApiError::new();
+        pv_err.code = 503;
+        pv_err.message = err.to_string();
+        pv_err
+    }
+}
+
+fn tonic_code_to_http(code: TonicCode) -> u16 {
+    match code {
+        TonicCode::Ok => 200,
+        TonicCode::Cancelled => 499,
+        TonicCode::Unknown => 500,
+        TonicCode::InvalidArgument => 400,
+        TonicCode::DeadlineExceeded => 504,
+        TonicCode::NotFound => 404,
+        TonicCode::AlreadyExists => 409,
+        TonicCode::PermissionDenied => 403,
+        TonicCode::ResourceExhausted => 429,
+        TonicCode::FailedPrecondition => 400,
+        TonicCode::Aborted => 409,
+        TonicCode::OutOfRange => 400,
+        TonicCode::Unimplemented => 501,
+        TonicCode::Internal => 500,
+        TonicCode::Unavailable => 503,
+        TonicCode::DataLoss => 500,
+        TonicCode::Unauthenticated => 401,
     }
 }
 
