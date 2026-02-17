@@ -25,7 +25,7 @@ pub trait Remote: Send + Sync {
 #[derive(Debug)]
 pub struct SearchResult {
     pub image: Option<Image>,
-    pub id: Option<u64>,
+    pub id: Option<String>,
     pub details: Option<Value>, //json, let it be what it be.
 }
 
@@ -33,12 +33,12 @@ pub struct SearchResult {
 ///This combination is what binds our local fr info to a person.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RegistrationPair {
-    pub ext_id: u64,
+    pub ext_id: String,
     pub fr_id: String,
 }
 
 impl RegistrationPair {
-    pub fn new(fr_id: String, ext_id: u64) -> Self {
+    pub fn new(fr_id: String, ext_id: String) -> Self {
         RegistrationPair { ext_id, fr_id }
     }
 }

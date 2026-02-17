@@ -12,7 +12,7 @@ pub trait FRBackend: Send + Sync {
         &self,
         enroll_data: EnrollData,
         config: MatchConfig,
-        ext_id: Option<u64>,
+        ext_id: Option<String>,
     ) -> FRResult<Value>; //create an enrollment for a single face
     async fn delete_enrollment(&self, fr_id: &str) -> FRResult<Value>; //delete an enrollment for a singel face
     async fn get_enrollment_metadata(&self) -> FRResult<Value>;

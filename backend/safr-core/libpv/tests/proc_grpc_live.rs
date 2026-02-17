@@ -158,7 +158,10 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
         let validness = face.liveness_validness.as_ref().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("missing liveness validness payload for {}", image_path.display()),
+                format!(
+                    "missing liveness validness payload for {}",
+                    image_path.display()
+                ),
             )
         })?;
 

@@ -229,7 +229,7 @@ fn format_results(val: &Value) {
     if let Some(items) = val.as_array() {
         for item in items {
             let fr_id = &item["fr_id"];
-            let ext_id = &item["ext_id"];
+            let ext_id = read_ext_id(item).unwrap_or_else(|| "".to_string());
             let last_name = &item["details"]["last_name"];
             let first_name = &item["details"]["first_name"];
             let fmt = format!("{}   {}   {}, {}", fr_id, ext_id, last_name, first_name);
@@ -284,14 +284,14 @@ async fn index_search_results(data: Value, output_file: &str) -> Result<()> {
         for obj in outer {
             if let Some(items) = obj.as_array() {
                 for item in items {
-                    let ccode = item["ccode"].as_u64().unwrap_or(0);
+                    let ccode = item["ccode"].as_u64().map(|num| num.to_string());
                     let last_name = item["lName"].as_str().unwrap_or("");
                     let first_name = item["fName"].as_str().unwrap_or("");
                     let url = item["imgUrl"].as_str().unwrap_or("");
 
-                    if !url.is_empty() {
+                    if let Some(ccode) = ccode.filter(|_| !url.is_empty()) {
                         //no image, no point
-                        writer.write_record([last_name, first_name, &ccode.to_string(), url]);
+                        writer.write_record([last_name, first_name, &ccode, url]);
                     }
                 }
             } else {
@@ -360,8 +360,24 @@ async fn reset_enrollments(url: String) -> Result<Value> {
 struct Record {
     last_name: String,
     first_name: String,
-    ext_id: u64,
+    ext_id: String,
     url: String,
+}
+
+fn read_ext_id(item: &Value) -> Option<String> {
+    item.get("ext_id_str")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            item.get("ext_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            item.get("ext_id")
+                .and_then(Value::as_u64)
+                .map(|num| num.to_string())
+        })
 }
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};

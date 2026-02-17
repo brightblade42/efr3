@@ -10,7 +10,7 @@ use libpv::types::{
 };
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct PVGrpcBackend {
@@ -103,7 +103,7 @@ impl FRBackend for PVGrpcBackend {
         &self,
         enroll_data: EnrollData,
         config: MatchConfig,
-        ext_id: Option<u64>,
+        ext_id: Option<String>,
     ) -> FRResult<Value> {
         if enroll_data.image.is_none() {
             return Err(FRError::with_code(
@@ -135,6 +135,7 @@ impl FRBackend for PVGrpcBackend {
         };
 
         id_req.confidence = config.min_dupe_match;
+        id_req.external_ids = ext_id.clone().map(|id| vec![id]);
         let ident_res = self.ident_api.create_identities(id_req).await;
 
         let ident = match ident_res {
@@ -161,35 +162,10 @@ impl FRBackend for PVGrpcBackend {
             }
         };
 
-        if let Err(db_err) = self.legacy.enroll_db(&ident, &details, ext_id).await {
-            self.legacy
-                .log_enroll_err("enroll_db", &db_err, &details)
-                .await;
-
-            let rollback_req = DeleteIdentitiesRequest::from(ident.id.as_str());
-            match self.ident_api.delete_identities(Some(rollback_req)).await {
-                Ok(results) => {
-                    if !results.into_iter().any(|res| res.is_ok()) {
-                        error!(
-                            "failed local enrollment write and no pv rollback results succeeded for fr_id {}",
-                            ident.id
-                        );
-                    }
-                }
-                Err(rollback_err) => {
-                    error!(
-                        "failed local enrollment write and pv rollback for fr_id {}: {}",
-                        ident.id, rollback_err
-                    );
-                }
-            }
-
-            return Err(db_err);
-        }
-
         let fr_id = ident.id;
-        let eid = ext_id.unwrap_or(0);
-        Ok(json!({"fr_id": fr_id, "ext_id": eid}))
+        let eid_str = ext_id.unwrap_or_default();
+        let eid_num = eid_str.parse::<u64>().unwrap_or(0);
+        Ok(json!({"fr_id": fr_id, "ext_id": eid_num, "ext_id_str": eid_str}))
     }
 
     async fn delete_enrollment(&self, face_id: &str) -> FRResult<Value> {
@@ -204,17 +180,7 @@ impl FRBackend for PVGrpcBackend {
             .ok_or_else(|| FRError::with_code(1090, "pv returned no results for delete."))?;
 
         match res {
-            Ok(del_id) => {
-                let deleted_rows = self.legacy.delete_enrollment_db(&del_id).await?;
-                if deleted_rows == 0 {
-                    warn!(
-                        "delete_enrollment succeeded in pv but found no local row for fr_id {}",
-                        del_id
-                    );
-                }
-
-                Ok(json!({ "fr_id": del_id }))
-            }
+            Ok(del_id) => Ok(json!({ "fr_id": del_id })),
             Err(e) => {
                 let details = json!({ "fr_id": face_id });
                 let fr_err = FRError::with_details(e.code, &e.message, details.clone());
@@ -236,13 +202,8 @@ impl FRBackend for PVGrpcBackend {
 
     async fn reset_enrollments(&self) -> FRResult<Value> {
         let res = self.ident_api.delete_identities(None).await?;
-        let db_deleted = self.legacy.delete_all_enrollments_db().await?;
 
-        info!(
-            "Enrollments deleted from pv: {} local rows deleted: {}",
-            res.len(),
-            db_deleted
-        );
+        info!("Enrollments deleted from pv: {}", res.len());
 
         Ok(json!({
             "msg" : "All PV enrollments have been deleted. System reset."

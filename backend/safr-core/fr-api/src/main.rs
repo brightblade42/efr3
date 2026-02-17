@@ -7,8 +7,6 @@ mod profile_handlers;
 mod recognition_handlers;
 mod runtime;
 mod tpass_handlers;
-mod types;
-mod v1_handlers;
 use axum::http::{Method, StatusCode};
 //use axum_server::tls_rustls::RustlsConfig;
 use tracing_subscriber::EnvFilter;
@@ -31,6 +29,7 @@ use crate::errors::AppError;
 use crate::fr_service::FRService;
 use crate::runtime::{FREngine, RemoteRuntime};
 use libfr::backend::MatchConfig;
+use libfr::v2::adapters::fr_repo_sqlx::SqlxFrRepository;
 
 use libtpass::api::TPassClient;
 
@@ -40,6 +39,7 @@ type WResult<T> = Result<T, AppError>;
 #[derive(Clone)]
 struct AppState {
     fr_service: Arc<FRService>,
+    fr_repo: Arc<SqlxFrRepository>,
     tpass_client: Arc<TPassClient>,
     config: Config,
 }
@@ -102,6 +102,79 @@ impl Config {
     }
 }
 
+fn api_v2_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/enrollment/metadata",
+            get(enrollment_handlers::get_enrollment_metadata)
+                .post(enrollment_handlers::create_collection),
+        )
+        .route(
+            "/enrollment/roster",
+            get(enrollment_handlers::get_enrollment_roster),
+        )
+        .route(
+            "/enrollment/create",
+            post(enrollment_handlers::create_enrollment),
+        )
+        .route(
+            "/enrollment/search",
+            post(enrollment_handlers::search_enrollment),
+        )
+        .route(
+            "/enrollment/delete",
+            post(enrollment_handlers::delete_enrollment),
+        )
+        .route(
+            "/enrollment/reset",
+            post(enrollment_handlers::reset_enrollments),
+        )
+        .route(
+            "/enrollment/errlog",
+            post(enrollment_handlers::get_enrollment_errlog),
+        )
+        .route("/enrollment/add-face", post(enrollment_handlers::add_face))
+        .route(
+            "/enrollment/delete-face",
+            post(enrollment_handlers::delete_face),
+        )
+        .route("/get-identity", post(enrollment_handlers::get_face_info))
+        .route("/create-profile", post(profile_handlers::create_profile))
+        .route("/edit-profile", post(profile_handlers::edit_profile))
+        .route("/send-alert", post(tpass_handlers::send_fr_alert))
+        .route("/detect", post(recognition_handlers::detect_image)) //detect, bbox.
+        .route(
+            "/detect_spoof",
+            post(recognition_handlers::detect_spoof_image),
+        ) //detect, bbox.
+        .route(
+            "/validate-image",
+            post(recognition_handlers::detect_spoof_image),
+        )
+        //.route("/detect_embed", post(detect_image_embed)) //detect, bbox + embeddngs
+        .route("/recognize", post(recognition_handlers::recognize))
+        //a combo on recognition and notifying remote of building entrance / exit.
+        .route(
+            "/mark-attendance",
+            post(attendance_handlers::mark_attendance),
+        )
+}
+
+fn tpass_routes() -> Router<AppState> {
+    Router::new()
+        .route("/get-companies", get(tpass_handlers::get_tpass_companies))
+        .route(
+            "/get-client-types",
+            get(tpass_handlers::get_tpass_client_types),
+        )
+        .route(
+            "/get-status-types",
+            get(tpass_handlers::get_tpass_status_types),
+        )
+        .route("/search", post(tpass_handlers::search_tpass))
+        .fallback(fallback1)
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -135,6 +208,7 @@ async fn main() {
     };
 
     let tpass_client = Arc::new(TPassClient::new(None));
+    let fr_repo = Arc::new(SqlxFrRepository::new(db_pool.clone()));
     let fr_remote_env = env::var("FR_REMOTE").ok();
     let fr_backend_env = env::var("FR_BACKEND").ok();
 
@@ -152,7 +226,7 @@ async fn main() {
         fr_backend_env.clone(),
         config.pv_proc_url.clone(),
         config.pv_ident_url.clone(),
-        db_pool,
+        db_pool.clone(),
     ) {
         Ok(fr_engine) => fr_engine,
         Err(e) => {
@@ -170,105 +244,18 @@ async fn main() {
     info!("BACKEND: {}", fr_engine.name());
     info!("REMOTE: {}", remote_name);
 
-    let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote));
+    let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote, fr_repo.clone()));
 
     let app_state = AppState {
         fr_service,
+        fr_repo,
         tpass_client,
         config: config.clone(), //some tpass specific calls
     };
 
-    let api_v2_routes = Router::new()
-        .route(
-            "/enrollment/metadata",
-            get(enrollment_handlers::get_enrollment_metadata)
-                .post(enrollment_handlers::create_collection),
-        )
-        .route(
-            "/enrollment/roster",
-            get(enrollment_handlers::get_enrollment_roster),
-        )
-        .route(
-            "/enrollment/create",
-            post(enrollment_handlers::create_enrollment),
-        )
-        .route(
-            "/enrollment/search",
-            post(enrollment_handlers::search_enrollment),
-        )
-        .route(
-            "/enrollment/delete",
-            post(enrollment_handlers::delete_enrollment),
-        )
-        .route(
-            "/enrollment/reset",
-            post(enrollment_handlers::reset_enrollments),
-        )
-        .route(
-            "/enrollment/errlog",
-            post(enrollment_handlers::get_enrollment_errlog),
-        )
-        .route("/create-profile", post(profile_handlers::create_profile))
-        .route("/edit-profile", post(profile_handlers::edit_profile))
-        .route("/detect", post(recognition_handlers::detect_image)) //detect, bbox.
-        .route(
-            "/detect_spoof",
-            post(recognition_handlers::detect_spoof_image),
-        ) //detect, bbox.
-        .route(
-            "/validate-image",
-            post(recognition_handlers::detect_spoof_image),
-        )
-        //.route("/detect_embed", post(detect_image_embed)) //detect, bbox + embeddngs
-        .route("/recognize", post(recognition_handlers::recognize))
-        //a combo on recognition and notifying remote of building entrance / exit.
-        //NOTE: was called recognize-faces-b64, remember for when camera app breaks lol
-        .route(
-            "/mark-attendance",
-            post(attendance_handlers::mark_attendance),
-        );
-
-    let tpass_routes = Router::new()
-        .route("/get-companies", get(tpass_handlers::get_tpass_companies))
-        .route(
-            "/get-client-types",
-            get(tpass_handlers::get_tpass_client_types),
-        )
-        .route(
-            "/get-status-types",
-            get(tpass_handlers::get_tpass_status_types),
-        )
-        .route("/search", post(tpass_handlers::search_tpass))
-        .fallback(fallback1);
-
-    //V1 backport
-    let api_v1_routes = Router::new()
-        //NOTE: DEPRECATED
-        .route(
-            "/recognize-faces-b64",
-            post(attendance_handlers::mark_attendance),
-        )
-        .route("/recognize-faces", post(recognition_handlers::recognize))
-        .route("/recognize", post(v1_handlers::recognize_v1))
-        .route(
-            "/enrollment/create",
-            post(v1_handlers::create_enrollment_v1),
-        )
-        .route(
-            "/enrollment/delete",
-            post(v1_handlers::delete_enrollment_v1),
-        )
-        .route("/enrollment/add-face", post(v1_handlers::add_face_v1))
-        .route("/enrollment/delete-face", post(v1_handlers::delete_face_v1))
-        .route("/get-identity", post(v1_handlers::get_faces_v1))
-        .route("/create-profile", post(profile_handlers::create_profile))
-        .route("/edit-profile", post(profile_handlers::edit_profile))
-        .route("/send-alert", post(tpass_handlers::send_fr_alert));
-
     let app = Router::new()
-        .nest("/fr/v2", api_v2_routes)
-        .nest("/fr", api_v1_routes)
-        .nest("/tpass", tpass_routes)
+        .nest("/fr/v2", api_v2_routes())
+        .nest("/tpass", tpass_routes())
         //This is how we serve our static svelte files.
         .nest_service("/_app", ServeDir::new("./app/_app"))
         .layer(
@@ -288,10 +275,6 @@ async fn main() {
         //     },
         // ))
         .with_state(app_state);
-
-    //set up v1 endpoints. these differe mainly in the shape of the returned data.
-    //the api versioning may at some point be handled by a reverse proxy that will forward to
-    //the proper service version. That way, the real endpoints never change.
 
     //TODO: setup for http redirect.
     // if config.use_tls {
@@ -340,6 +323,361 @@ impl From<&Config> for MatchConfig {
             top_n: 2,
             top_n_min_match: 0.80,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::{Request, StatusCode};
+    use axum::{routing::post, Json};
+    use libtpass::config::TPassConf;
+    use serde_json::{json, Value};
+    use std::time::Duration;
+    use tower::ServiceExt;
+
+    fn test_state_with_tpass_url(tpass_url: &str) -> AppState {
+        let db_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_millis(200))
+            .connect_lazy("postgresql://admin:admin@127.0.0.1:9/identity?sslmode=disable")
+            .expect("lazy db pool should build");
+
+        let tpass_client = Arc::new(TPassClient::new(Some(TPassConf {
+            url: tpass_url.to_string(),
+            user: "test-user".to_string(),
+            pwd: "test-pwd".to_string(),
+        })));
+
+        let remote = Arc::new(
+            RemoteRuntime::from_env(Some("tpass".to_string()), tpass_client.clone())
+                .expect("remote runtime should initialize"),
+        );
+
+        let fr_engine = FREngine::mock();
+
+        let fr_repo = Arc::new(SqlxFrRepository::new(db_pool));
+        let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote, fr_repo.clone()));
+
+        AppState {
+            fr_service,
+            fr_repo,
+            tpass_client,
+            config: Config::new(),
+        }
+    }
+
+    fn test_app() -> Router {
+        test_app_with_tpass_url("https://example.invalid/")
+    }
+
+    fn test_app_with_tpass_url(tpass_url: &str) -> Router {
+        Router::new()
+            .nest("/fr/v2", api_v2_routes())
+            .with_state(test_state_with_tpass_url(tpass_url))
+    }
+
+    fn multipart_image_request(uri: &str) -> Request<Body> {
+        let boundary = "X-BOUNDARY";
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"face.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nabc\r\n--{b}--\r\n",
+            b = boundary
+        );
+
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body))
+            .expect("multipart request")
+    }
+
+    fn multipart_enrollment_request(
+        uri: &str,
+        include_image: bool,
+        include_details: bool,
+    ) -> Request<Body> {
+        let boundary = "X-BOUNDARY";
+        let mut body = String::new();
+
+        if include_image {
+            body.push_str(&format!(
+                "--{b}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"face.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nabc\r\n",
+                b = boundary
+            ));
+        }
+
+        if include_details {
+            body.push_str(&format!(
+                "--{b}\r\nContent-Disposition: form-data; name=\"details\"\r\n\r\n{{\"kind\":\"Min\",\"first_name\":\"Test\",\"last_name\":\"User\"}}\r\n",
+                b = boundary
+            ));
+        }
+
+        body.push_str(&format!("--{}--\r\n", boundary));
+
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body))
+            .expect("multipart request")
+    }
+
+    async fn response_json(resp: axum::response::Response) -> Value {
+        let bytes = to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("response body bytes");
+        serde_json::from_slice(&bytes).expect("json response")
+    }
+
+    fn mock_jwt_token() -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256","typ":"JWT"}"#);
+        let claims = URL_SAFE_NO_PAD
+            .encode(r#"{"Name":"tester","Role":"admin","CCode":"1","exp":4102444800}"#);
+
+        format!("{}.{}.e30", header, claims)
+    }
+
+    async fn spawn_mock_tpass_server() -> (String, tokio::task::JoinHandle<()>) {
+        async fn token_handler() -> Json<Value> {
+            Json(json!({"token": mock_jwt_token()}))
+        }
+
+        async fn send_alert_handler() -> Json<Value> {
+            Json(json!({"ok": true}))
+        }
+
+        let app = Router::new()
+            .route("/api/token", post(token_handler))
+            .route("/api/notification/sendalert", post(send_alert_handler));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock tpass listener");
+        let addr = listener.local_addr().expect("mock tpass local addr");
+
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("mock tpass server should run");
+        });
+
+        (format!("http://{}/", addr), handle)
+    }
+
+    #[tokio::test]
+    async fn add_face_requires_fr_id_query_param() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/enrollment/add-face")
+            .body(Body::empty())
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn delete_face_requires_face_id_field() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/enrollment/delete-face")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"fr_id":"abc"}"#))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn get_identity_requires_fr_id_field() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/get-identity")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn send_alert_requires_required_payload_fields() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/send-alert")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn add_face_happy_path_returns_faces_payload() {
+        let app = test_app();
+        let req = multipart_image_request("/fr/v2/enrollment/add-face?fr_id=mock-fr-id");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        let faces = payload
+            .get("faces")
+            .and_then(Value::as_array)
+            .expect("faces array");
+        assert_eq!(faces.len(), 1);
+        assert_eq!(faces[0]["id"], "mock-face-id");
+    }
+
+    #[tokio::test]
+    async fn delete_face_happy_path_returns_delete_payload() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/enrollment/delete-face")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"fr_id":"mock-fr-id","face_id":"mock-face-id"}"#,
+            ))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        assert_eq!(payload["rows_affected"], 1);
+        assert_eq!(payload["fr_id"], "mock-fr-id");
+        assert_eq!(payload["face_id"], "mock-face-id");
+    }
+
+    #[tokio::test]
+    async fn get_identity_happy_path_returns_faces_payload() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/get-identity")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"fr_id":"mock-fr-id"}"#))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        let faces = payload
+            .get("faces")
+            .and_then(Value::as_array)
+            .expect("faces array");
+        assert_eq!(faces.len(), 1);
+        assert_eq!(payload["total_size"], 1);
+    }
+
+    #[tokio::test]
+    async fn send_alert_happy_path_returns_message_payload() {
+        let (tpass_url, handle) = spawn_mock_tpass_server().await;
+        let app = test_app_with_tpass_url(&tpass_url);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/send-alert")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"CompId":1,"PInfo":42}"#))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        assert_eq!(payload["message"], "alert sent");
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn create_enrollment_missing_details_returns_standard_error_shape() {
+        let app = test_app();
+        let req = multipart_enrollment_request("/fr/v2/enrollment/create", true, false);
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        assert_eq!(payload["code"], 0);
+        assert!(payload["message"].is_string());
+    }
+
+    #[tokio::test]
+    async fn delete_enrollment_empty_fr_id_returns_standard_error_shape() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/enrollment/delete")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"fr_id":""}"#))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        assert_eq!(payload["code"], 0);
+        assert!(payload["message"].is_string());
+    }
+
+    #[tokio::test]
+    async fn search_enrollment_db_failure_returns_standard_error_shape() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/enrollment/search")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"last_name":"User"}"#))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        assert_eq!(payload["code"], 1061);
+        assert!(payload["message"].is_string());
+        assert!(payload["details"].is_object());
+    }
+
+    #[tokio::test]
+    async fn delete_enrollment_db_failure_returns_standard_error_shape() {
+        let app = test_app();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/fr/v2/enrollment/delete")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"fr_id":"mock-fr-id"}"#))
+            .expect("request");
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        assert_eq!(payload["code"], 1060);
+        assert!(payload["message"].is_string());
+        assert!(payload["details"].is_object());
     }
 }
 //we're not using this one currently

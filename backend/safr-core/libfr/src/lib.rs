@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod remote;
+pub mod v2;
 use bytes::Bytes;
 use libpv::errors::PVApiError;
 use libtpass::errors::TPassError;
@@ -143,7 +144,7 @@ pub enum SearchBy {
 pub struct PossibleMatch {
     pub fr_id: String,
     pub confidence: f32,
-    pub ext_id: u64,
+    pub ext_id: String,
     pub details: Option<Value>,
 }
 
@@ -152,7 +153,7 @@ impl PossibleMatch {
         Self {
             fr_id,
             confidence,
-            ext_id: 0,
+            ext_id: String::new(),
             details: None,
         }
     }
@@ -161,7 +162,7 @@ impl PossibleMatch {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MinDetails {
     pub fr_id: String,
-    pub ext_id: u64,
+    pub ext_id: String,
     pub details: Value,
 }
 ///A combination of a set of attribute for a givent face and

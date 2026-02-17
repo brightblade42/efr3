@@ -7,6 +7,8 @@ use libfr::{
     EnrollData, FRIdentity, FRResult, SearchBy,
 };
 use libtpass::api::TPassClient;
+#[cfg(test)]
+use serde_json::json;
 use serde_json::Value;
 use sqlx::PgPool;
 
@@ -80,6 +82,8 @@ impl Remote for RemoteRuntime {
 pub enum FREngine {
     ParavisionGrpc(PVGrpcBackend),
     Paravision(PVBackend),
+    #[cfg(test)]
+    Mock,
 }
 
 impl FREngine {
@@ -106,7 +110,14 @@ impl FREngine {
         match self {
             Self::ParavisionGrpc(_) => "paravision-grpc",
             Self::Paravision(_) => "paravision",
+            #[cfg(test)]
+            Self::Mock => "mock",
         }
+    }
+
+    #[cfg(test)]
+    pub fn mock() -> Self {
+        Self::Mock
     }
 }
 
@@ -115,7 +126,7 @@ impl FRBackend for FREngine {
         &self,
         enroll_data: EnrollData,
         config: MatchConfig,
-        ext_id: Option<u64>,
+        ext_id: Option<String>,
     ) -> FRResult<Value> {
         match self {
             Self::ParavisionGrpc(backend) => {
@@ -124,6 +135,8 @@ impl FRBackend for FREngine {
             Self::Paravision(backend) => {
                 backend.create_enrollment(enroll_data, config, ext_id).await
             }
+            #[cfg(test)]
+            Self::Mock => Ok(json!({"fr_id":"mock-fr-id","ext_id":123,"ext_id_str":"123"})),
         }
     }
 
@@ -131,6 +144,8 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.delete_enrollment(fr_id).await,
             Self::Paravision(backend) => backend.delete_enrollment(fr_id).await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!({"fr_id": fr_id})),
         }
     }
 
@@ -138,6 +153,14 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.get_enrollment_metadata().await,
             Self::Paravision(backend) => backend.get_enrollment_metadata().await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!({
+                "profiles_total": 1,
+                "profiles_with_fr_id": 1,
+                "images_total": 1,
+                "registration_errors_total": 0,
+                "enrollment_logs_total": 0
+            })),
         }
     }
 
@@ -145,6 +168,13 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.get_enrollment_roster().await,
             Self::Paravision(backend) => backend.get_enrollment_roster().await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!([{
+                "fr_id": "mock-fr-id",
+                "ext_id": 123,
+                "ext_id_str": "123",
+                "details": {"first_name":"Test","last_name":"User"}
+            }])),
         }
     }
 
@@ -152,6 +182,8 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.reset_enrollments().await,
             Self::Paravision(backend) => backend.reset_enrollments().await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!({"msg":"mock reset"})),
         }
     }
 
@@ -159,6 +191,8 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.detect_face(image.clone(), spoof_check).await,
             Self::Paravision(backend) => backend.detect_face(image, spoof_check).await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!([])),
         }
     }
 
@@ -166,6 +200,8 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.recognize(image.clone(), config).await,
             Self::Paravision(backend) => backend.recognize(image, config).await,
+            #[cfg(test)]
+            Self::Mock => Ok(vec![]),
         }
     }
 
@@ -173,6 +209,15 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.add_face(fr_id, image.clone()).await,
             Self::Paravision(backend) => backend.add_face(fr_id, image).await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!({
+                "faces": [{
+                    "id": "mock-face-id",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "model": "mock",
+                    "quality": 0.99
+                }]
+            })),
         }
     }
 
@@ -180,6 +225,8 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.delete_face(fr_id, face_id).await,
             Self::Paravision(backend) => backend.delete_face(fr_id, face_id).await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!({"rows_affected": 1, "fr_id": fr_id, "face_id": face_id})),
         }
     }
 
@@ -187,6 +234,17 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.get_face_info(fr_id).await,
             Self::Paravision(backend) => backend.get_face_info(fr_id).await,
+            #[cfg(test)]
+            Self::Mock => Ok(json!({
+                "faces": [{
+                    "id": "mock-face-id",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "model": "mock",
+                    "quality": 0.99
+                }],
+                "next_page_token": "",
+                "total_size": 1
+            })),
         }
     }
 
@@ -194,6 +252,8 @@ impl FRBackend for FREngine {
         match self {
             Self::ParavisionGrpc(backend) => backend.get_enrollments_by_last_name(name).await,
             Self::Paravision(backend) => backend.get_enrollments_by_last_name(name).await,
+            #[cfg(test)]
+            Self::Mock => Ok(vec![]),
         }
     }
 
@@ -208,6 +268,8 @@ impl FRBackend for FREngine {
                 backend.log_identity(fr_identity, extra, location).await
             }
             Self::Paravision(backend) => backend.log_identity(fr_identity, extra, location).await,
+            #[cfg(test)]
+            Self::Mock => Ok(()),
         }
     }
 }

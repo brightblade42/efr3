@@ -10,7 +10,6 @@ use tracing::{debug, error, info, warn};
 
 use crate::{errors::AppError, errors::AppError::Generic, extractors, AppState, WResult};
 
-// NOTE: This is called recognize_faces_b64 in V1.
 // The image sent to this endpoint should be a single face, but we can't know that for sure.
 /// mark_attendance will recognize a face in an image and notify the remote (tpass) that someone
 /// has entered or exited a building or room.
@@ -64,7 +63,9 @@ pub async fn mark_attendance(
                 "An client idnumber is required to record attendance. check with tpass".to_string(),
             ));
         }
-        let ccode = details["ccode"].as_u64().unwrap_or(0);
+        let ccode = parse_ccode(&details).ok_or_else(|| {
+            Generic("A valid client ccode is required to record attendance".to_string())
+        })?;
         (idnum.to_string(), ccode)
     } else {
         return Err(Generic(
@@ -134,6 +135,10 @@ fn validate_details(fr_ident: &FRIdentity) -> WResult<Value> {
     };
 
     Ok(details)
+}
+
+fn parse_ccode(details: &Value) -> Option<u64> {
+    details.get("ccode").and_then(Value::as_u64)
 }
 
 #[derive(Serialize, Deserialize, Debug)]

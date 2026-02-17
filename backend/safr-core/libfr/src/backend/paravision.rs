@@ -5,14 +5,13 @@ use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use libpv::types::{
     AddFaceRequest, CreateIdentitiesRequest, DeleteFaceRequest, DeleteIdentitiesRequest, Embedding,
-    GetFacesRequest, Identity, LookupRequest, LookupResponse, ProcessFullImageRequest,
+    GetFacesRequest, LookupRequest, LookupResponse, ProcessFullImageRequest,
 };
 use libpv::PVApi;
 use serde_json::{json, Value};
 
 use sqlx::PgPool;
 
-use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
 #[derive(Clone)]
@@ -36,24 +35,21 @@ struct EnrollmentRow {
 impl EnrollmentRow {
     fn into_min_details(self) -> MinDetails {
         MinDetails {
-            ext_id: parse_ext_id_or_default(&self.fr_id, &self.ext_id),
+            ext_id: normalize_ext_id_or_default(&self.fr_id, &self.ext_id),
             fr_id: self.fr_id,
             details: self.summary,
         }
     }
 }
 
-fn parse_ext_id_or_default(fr_id: &str, ext_id: &str) -> u64 {
-    match ext_id.parse::<u64>() {
-        Ok(id) => id,
-        Err(err) => {
-            warn!(
-                "failed to parse ext_id '{}' for fr_id '{}': {}; defaulting to 0",
-                ext_id, fr_id, err
-            );
-            0
-        }
+fn normalize_ext_id_or_default(fr_id: &str, ext_id: &str) -> String {
+    let trimmed = ext_id.trim();
+    if trimmed.is_empty() {
+        warn!("ext_id was empty for fr_id '{}'; defaulting to '0'", fr_id);
+        return "0".to_string();
     }
+
+    trimmed.to_string()
 }
 
 impl PVBackend {
@@ -133,78 +129,6 @@ impl PVBackend {
         };
 
         is_duped
-    }
-
-    pub(crate) async fn enroll_db(
-        &self,
-        fr_data: &Identity,
-        details: &EnrollDetails,
-        ext_id: Option<u64>,
-    ) -> FRResult<()> {
-        debug!("The data we will be shoving into our db");
-        debug!("{:?}", fr_data);
-
-        let eid = ext_id.unwrap_or(0);
-        let id = &fr_data.id;
-
-        // //TODO: can't sqlx do this for us?
-        let details_val = serde_json::to_value(details)?;
-        let fr_data_val = serde_json::to_value(&fr_data)?;
-
-        // //NOTE: image_id and face_id. it's not entirely clear which is the true identifier
-        // //TODO: if this fails, then what?
-
-        let res = sqlx::query(
-            r" INSERT into paravision.enrollment (fr_id,fr_data,summary, ext_id) VALUES ($1,$2,$3,$4) ",
-        )
-        .bind(id)
-        .bind(fr_data_val)
-        .bind(details_val)
-        .bind(eid.to_string())
-        .execute(&self.db)
-        .await?;
-
-        if res.rows_affected() != 1 {
-            return Err(FRError::with_details(
-                1012,
-                "Enrollment insert did not affect exactly one row",
-                json!({
-                    "fr_id": id,
-                    "rows_affected": res.rows_affected(),
-                }),
-            ));
-        }
-
-        Ok(())
-    }
-
-    ///delete an enrollment by the id given from the fr api.
-    pub(crate) async fn delete_enrollment_db(&self, fr_id: &str) -> FRResult<u64> {
-        let res = sqlx::query("DELETE from paravision.enrollment where fr_id = $1")
-            .bind(fr_id)
-            .execute(&self.db)
-            .await?;
-
-        let rows = res.rows_affected();
-        if rows == 0 {
-            warn!(
-                "delete_enrollment_db removed no rows for fr_id '{}'. database and pv may be out of sync",
-                fr_id
-            );
-        }
-
-        info!("delete_enrollment_db: {:?} ", res);
-
-        Ok(rows)
-    }
-
-    pub(crate) async fn delete_all_enrollments_db(&self) -> FRResult<u64> {
-        let res = sqlx::query("Delete from paravision.enrollment")
-            .execute(&self.db)
-            .await?;
-        let rows = res.rows_affected();
-        info!("deleted {} local enrollment rows", rows);
-        Ok(rows)
     }
 
     ///if there's an error during enrollment, we log it.
@@ -332,7 +256,7 @@ impl PVBackend {
 
         //this is crazy time yo.
         //transform to friendlier types, do a sort, filter out low confidences.
-        let mut fr_idents: Vec<FRIdentity> = lookups
+        let fr_idents: Vec<FRIdentity> = lookups
             .iter()
             .map(|item| {
                 let mut pms: Vec<PossibleMatch> = item
@@ -342,7 +266,9 @@ impl PVBackend {
                     .flat_map(|item| &item.identity_confidences)
                     .map(|ic| {
                         let n_conf = utils::roundf32(ic.confidence, 5);
-                        PossibleMatch::new(ic.identity.id.clone(), n_conf)
+                        let mut pm = PossibleMatch::new(ic.identity.id.clone(), n_conf);
+                        pm.ext_id = ic.identity.external_id.clone().unwrap_or_default();
+                        pm
                     })
                     .collect();
 
@@ -367,55 +293,7 @@ impl PVBackend {
             })
             .collect();
 
-        let mut fr_ids: Vec<String> = fr_idents
-            .iter()
-            .flat_map(|ident| ident.possible_matches.iter().map(|pm| pm.fr_id.clone()))
-            .collect();
-
-        fr_ids.sort();
-        fr_ids.dedup();
-
-        let details_by_fr_id = self.get_details_by_fr_ids(&fr_ids).await?;
-
-        for ident in &mut fr_idents {
-            for pm in &mut ident.possible_matches {
-                if let Some(loc_det) = details_by_fr_id.get(&pm.fr_id) {
-                    pm.ext_id = loc_det.ext_id;
-                    pm.details = Some(loc_det.details.clone())
-                } else {
-                    error!(
-                        "pv identity {} exists but not in enrollment db. db out of sync",
-                        &pm.fr_id
-                    );
-                }
-            }
-        }
-
         Ok(fr_idents) //let's go boys!
-    }
-
-    async fn get_details_by_fr_ids(
-        &self,
-        fr_ids: &[String],
-    ) -> FRResult<HashMap<String, MinDetails>> {
-        if fr_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let rows: Vec<EnrollmentRow> = sqlx::query_as(
-            r#"SELECT fr_id, ext_id, summary FROM paravision.enrollment WHERE fr_id = ANY($1)"#,
-        )
-        .bind(fr_ids)
-        .fetch_all(&self.db)
-        .await?;
-
-        let details_by_fr_id = rows
-            .into_iter()
-            .map(EnrollmentRow::into_min_details)
-            .map(|min| (min.fr_id.clone(), min))
-            .collect();
-
-        Ok(details_by_fr_id)
     }
 
     async fn get_details_from_name(&self, name: &str) -> FRResult<Vec<MinDetails>> {
@@ -439,7 +317,7 @@ impl FRBackend for PVBackend {
         &self,
         enroll_data: EnrollData,
         config: MatchConfig,
-        ext_id: Option<u64>,
+        ext_id: Option<String>,
     ) -> FRResult<Value> {
         //at this point, we must have acquired an image from some source. If we don't, we can't enroll
         if enroll_data.image.is_none() {
@@ -475,6 +353,7 @@ impl FRBackend for PVBackend {
 
         //if we got here, we are cleared for performing the enrollment.
         id_req.confidence = config.min_dupe_match; //basically a double dupe check.
+        id_req.external_ids = ext_id.clone().map(|id| vec![id]);
         let ident_res = self.api.create_identities(id_req).await; //fr template create
 
         let ident = match ident_res {
@@ -501,39 +380,12 @@ impl FRBackend for PVBackend {
             }
         };
 
-        //NOTE: We have passed the gauntlet of possible errors! Rejoice!
-
-        //pass in optional external details
-        //NOTE: if enroll_db fails, this operation is partial in PV and should fail fast here.
-        if let Err(db_err) = self.enroll_db(&ident, &details, ext_id).await {
-            self.log_enroll_err("enroll_db", &db_err, &details).await;
-
-            let rollback_req = DeleteIdentitiesRequest::from(ident.id.as_str());
-            match self.api.delete_identities(Some(rollback_req)).await {
-                Ok(results) => {
-                    if !results.into_iter().any(|res| res.is_ok()) {
-                        error!(
-                            "failed local enrollment write and no pv rollback results succeeded for fr_id {}",
-                            ident.id
-                        );
-                    }
-                }
-                Err(rollback_err) => {
-                    error!(
-                        "failed local enrollment write and pv rollback for fr_id {}: {}",
-                        ident.id, rollback_err
-                    );
-                }
-            }
-
-            return Err(db_err);
-        }
-
         let fr_id = ident.id;
-        let eid = ext_id.unwrap_or(0);
+        let eid_str = ext_id.unwrap_or_default();
+        let eid_num = eid_str.parse::<u64>().unwrap_or(0);
 
         //TODO: too much json. start thinking about structs
-        Ok(json!({"fr_id": fr_id, "ext_id": eid}))
+        Ok(json!({"fr_id": fr_id, "ext_id": eid_num, "ext_id_str": eid_str}))
     }
 
     async fn delete_enrollment(&self, face_id: &str) -> FRResult<Value> {
@@ -548,17 +400,7 @@ impl FRBackend for PVBackend {
             .ok_or_else(|| FRError::with_code(1090, "pv returned no results for delete."))?;
 
         match res {
-            Ok(del_id) => {
-                let deleted_rows = self.delete_enrollment_db(&del_id).await?;
-                if deleted_rows == 0 {
-                    warn!(
-                        "delete_enrollment succeeded in pv but found no local row for fr_id {}",
-                        del_id
-                    );
-                }
-
-                Ok(json!({ "fr_id": del_id })) //we'll want our own data structure, maybe that's for one level up
-            }
+            Ok(del_id) => Ok(json!({ "fr_id": del_id })),
             Err(e) => {
                 let details = json!({ "fr_id": face_id });
                 let fr_err = FRError::with_details(e.code, &e.message, details.clone());
@@ -578,14 +420,9 @@ impl FRBackend for PVBackend {
 
     async fn reset_enrollments(&self) -> FRResult<Value> {
         //passsing none means delete all.. which is weird.
-        let res = self.api.delete_identities(None).await?; //.into_iter().next();
-        let db_deleted = self.delete_all_enrollments_db().await?;
+        let res = self.api.delete_identities(None).await?;
 
-        info!(
-            "Enrollments deleted from pv: {} local rows deleted: {}",
-            res.len(),
-            db_deleted
-        );
+        info!("Enrollments deleted from pv: {}", res.len());
 
         Ok(json!({
             "msg" : "All PV enrollments have been deleted. System reset."

@@ -44,51 +44,6 @@ pub struct NewProfileEnrollData {
     pub image: Bytes,
 }
 
-/// Extract request parameters and return ImageData struct.
-/// NOTE: v1 is needed because TPass does not set content_type.
-pub async fn extract_image_data_v1(mut multipart: Multipart, min_match: f32) -> WResult<ImageData> {
-    let mut image_data = ImageData {
-        image: None,
-        opts: None,
-    };
-
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| Generic(format!("invalid multipart payload: {}", e)))?
-    {
-        match field.name().unwrap_or("") {
-            "image" => {
-                let content_type = field.content_type().map(|item| item.to_string());
-                let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                image_data.image = parse_image_field(bytes, content_type.as_deref())?;
-            }
-
-            "opts" => {
-                let jval = field.text().await.map_err(|x| Generic(x.to_string()))?;
-                debug!("opts: {:?}", &jval);
-                let p_res = serde_json::from_str(jval.as_str());
-                image_data.opts = match p_res {
-                    Ok(opts) => Some(opts),
-                    Err(_) => Some(ImageOpts {
-                        min_match,
-                        ..ImageOpts::default()
-                    }),
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if image_data.image.is_none() {
-        return Err(Generic(
-            "An image is required but was not provided".to_string(),
-        ));
-    }
-
-    Ok(image_data)
-}
-
 /// Extract image and opts from multipart data.
 pub async fn extract_image_data(mut multipart: Multipart, min_match: f32) -> WResult<ImageData> {
     let mut image_data = ImageData {

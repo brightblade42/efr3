@@ -11,9 +11,18 @@ use super::{RegistrationPair, SearchResult};
 impl Remote for TPassClient {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value> {
         //TODO: reconstruct enrollment from old TPass functions.
-        let res = self
-            .register_frid(reg_pair.ext_id, reg_pair.fr_id.clone())
-            .await?;
+        let ccode = reg_pair.ext_id.parse::<u64>().map_err(|e| {
+            FRError::with_details(
+                1081,
+                "Could not parse ext_id for TPass registration",
+                json!({
+                    "ext_id": reg_pair.ext_id,
+                    "error": e.to_string(),
+                }),
+            )
+        })?;
+
+        let res = self.register_frid(ccode, reg_pair.fr_id.clone()).await?;
         if res["error"] == true {
             error!("TPASS returned a Registration Error!");
             return Err(FRError::with_details(
@@ -89,7 +98,7 @@ impl Remote for TPassClient {
                         let sr = SearchResult {
                             image: Some(Image::Binary(image)),
                             details: Some(tpd.clone()),
-                            id: ccode,
+                            id: ccode.map(|id| id.to_string()),
                         };
 
                         Ok(vec![sr])
@@ -143,7 +152,7 @@ impl Remote for TPassClient {
 
                         Some(SearchResult {
                             image: None,
-                            id: item["ccode"].as_u64(),
+                            id: item["ccode"].as_u64().map(|id| id.to_string()),
                             details: Some(item.clone()), //FIXME: avoid cloning if possible
                         })
                     }
@@ -171,7 +180,7 @@ impl Remote for TPassClient {
 
                         Some(SearchResult {
                             image: None,
-                            id: Some(ccode),
+                            id: Some(ccode.to_string()),
                             details: Some(item.clone()), //FIXME: avoid cloning if possible
                         })
                     }
