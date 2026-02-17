@@ -57,10 +57,17 @@ impl From<libpv::types::Face> for Face {
             None => None,
         };
 
+        let liveness = to_liveness(
+            pv_face.liveness.as_ref(),
+            pv_face.liveness_validness.as_ref(),
+        );
+
         Self {
             bbox,
+            acceptability: pv_face.acceptability,
             quality: pv_face.quality,
             mask: pv_face.mask,
+            liveness,
         }
     }
 }
@@ -76,10 +83,36 @@ impl From<&libpv::types::Face> for Face {
             height: bb.height.round(),
         });
 
+        let liveness = to_liveness(
+            pv_face.liveness.as_ref(),
+            pv_face.liveness_validness.as_ref(),
+        );
+
         Self {
             bbox,
+            acceptability: pv_face.acceptability,
             quality: pv_face.quality,
             mask: pv_face.mask,
+            liveness,
         }
     }
+}
+
+fn to_liveness(
+    liveness: Option<&libpv::types::Liveness>,
+    validness: Option<&libpv::types::Validness>,
+) -> Option<crate::Liveness> {
+    liveness.map(|liveness| {
+        let feedback = validness
+            .map(|item| item.feedback.clone())
+            .unwrap_or_default();
+        let is_live = validness.map(|item| item.is_valid).unwrap_or(false)
+            && liveness.liveness_probability > 0.5;
+
+        crate::Liveness {
+            is_live,
+            feedback,
+            score: liveness.liveness_probability,
+        }
+    })
 }

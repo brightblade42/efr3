@@ -2,11 +2,12 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use tracing::info;
 
 use crate::{errors::AppError::Generic, extractors, AppState, WResult};
 use libfr::backend::MatchConfig;
+use libfr::Face;
 
 /// Spoof check flag is currently passed through to backend implementation.
 pub async fn detect_spoof_image(
@@ -18,7 +19,51 @@ pub async fn detect_spoof_image(
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
     let res = app_state.fr_service.detect_face(image, true).await?;
-    Ok(Json(res))
+
+    let faces: Vec<Face> = serde_json::from_value(res)
+        .map_err(|e| Generic(format!("failed to parse liveness response: {}", e)))?;
+    let face = faces
+        .into_iter()
+        .next()
+        .ok_or_else(|| Generic("No faces were detected in image".to_string()))?;
+
+    let min_acceptability = app_state.config.min_acceptability;
+    let min_quality = app_state.config.min_quality;
+    let quality = face.quality.unwrap_or(0.0);
+    let acceptability = face.acceptability.unwrap_or(0.0);
+
+    let liveness = face.liveness.unwrap_or(libfr::Liveness {
+        is_live: false,
+        feedback: vec!["LIVENESS_NOT_AVAILABLE".to_string()],
+        score: 0.0,
+    });
+
+    let response = json!({
+        "image": {
+            "min_acceptability": min_acceptability,
+            "min_quality": min_quality,
+            "acceptability": acceptability,
+            "quality": quality,
+        },
+        "face": {
+            "bounding_box": face.bbox,
+        },
+        "liveness": {
+            "min_score": 0.5,
+            "score": liveness.score,
+            "feedback": liveness.feedback,
+            "is_live": liveness.is_live,
+        },
+        "is_valid": is_image_valid(
+            acceptability,
+            liveness.score,
+            liveness.is_live,
+            &liveness.feedback,
+            min_acceptability,
+        ),
+    });
+
+    Ok(Json(response))
 }
 
 pub async fn detect_image(
@@ -69,4 +114,30 @@ pub async fn recognize(
     let value = serde_json::to_value(identities)
         .map_err(|e| Generic(format!("failed to serialize recognition result: {}", e)))?;
     Ok(Json(value))
+}
+
+fn is_image_valid(
+    acceptability: f32,
+    liveness_score: f32,
+    is_live: bool,
+    feedback: &[String],
+    min_acceptability: f32,
+) -> bool {
+    if acceptability < min_acceptability {
+        return false;
+    }
+
+    if liveness_score < 0.5 {
+        return false;
+    }
+
+    if !is_live {
+        return false;
+    }
+
+    if !feedback.is_empty() {
+        return false;
+    }
+
+    true
 }

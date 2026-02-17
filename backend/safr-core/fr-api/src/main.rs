@@ -59,7 +59,8 @@ struct Config {
     _use_tls: bool,
     min_match: f32,
     min_dupe_match: f32,
-    _min_quality: f32,
+    min_quality: f32,
+    min_acceptability: f32,
     port: u16,
 }
 impl Config {
@@ -69,6 +70,8 @@ impl Config {
         //let dev_url = "174.51.11.19";
         let min_match = env::var("MIN_MATCH").unwrap_or("0.95".to_string());
         let min_quality = env::var("MIN_QUALITY").unwrap_or("0.80".to_string());
+        let min_acceptability =
+            env::var("MIN_ACCEPTABILITY").unwrap_or_else(|_| min_quality.clone());
         let min_dupe_match = env::var("MIN_DUPE_MATCH").unwrap_or("0.98".to_string());
         let use_tls = env::var("USE_TLS").unwrap_or("false".to_string());
         let port = env::var("FRAPI_PORT").unwrap_or("3000".to_string());
@@ -90,7 +93,8 @@ impl Config {
             _use_tls: use_tls.parse().unwrap_or(false),
 
             min_match: min_match.parse().unwrap_or(0.95),
-            _min_quality: min_quality.parse().unwrap_or(0.80),
+            min_quality: min_quality.parse().unwrap_or(0.80),
+            min_acceptability: min_acceptability.parse().unwrap_or(0.80),
 
             min_dupe_match: min_dupe_match.parse().unwrap_or(0.98),
             port: port.parse().unwrap_or(3000),
@@ -211,6 +215,10 @@ async fn main() {
             "/detect_spoof",
             post(recognition_handlers::detect_spoof_image),
         ) //detect, bbox.
+        .route(
+            "/validate-image",
+            post(recognition_handlers::detect_spoof_image),
+        )
         //.route("/detect_embed", post(detect_image_embed)) //detect, bbox + embeddngs
         .route("/recognize", post(recognition_handlers::recognize))
         //a combo on recognition and notifying remote of building entrance / exit.

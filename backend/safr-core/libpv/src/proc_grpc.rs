@@ -4,7 +4,8 @@ use tonic::Request;
 
 use crate::errors::PVApiError;
 use crate::types::{
-    BoundingBox, Face, HealthCheckResponse, Landmarks, Point, ProcessImageResponse,
+    BoundingBox, Face, HealthCheckResponse, Landmarks, Liveness, Point, ProcessImageResponse,
+    Validness,
 };
 
 type PVResult<T> = Result<T, PVApiError>;
@@ -18,6 +19,7 @@ pub mod processor {
 }
 
 const DEFAULT_OUTPUTS: [&str; 4] = ["BOUNDING_BOX", "EMBEDDING", "QUALITY", "MASK"];
+const LIVENESS_OUTPUTS: [&str; 4] = ["BOUNDING_BOX", "QUALITY", "LIVENESS", "LIVENESS_VALIDNESS"];
 
 #[derive(Clone)]
 pub struct PVProcGrpcApi {
@@ -46,6 +48,33 @@ impl PVProcGrpcApi {
             scoring_mode: processor::ScoringMode::Auto as i32,
             image_source: processor::ImageSource::Unknown as i32,
             liveness_validness_parameters: None,
+            ages_v2_validness_parameters: None,
+            deepfake_validness_parameters: None,
+        };
+
+        let response = client
+            .process_full_image(Request::new(request))
+            .await?
+            .into_inner();
+
+        Ok(to_process_image_response(response))
+    }
+
+    pub async fn process_image_liveness(&self, image: Bytes) -> PVResult<ProcessImageResponse> {
+        let mut client = self.processor_client().await?;
+
+        let request = processor::ProcessFullImageRequest {
+            image: image.to_vec(),
+            outputs: map_outputs(Some(
+                LIVENESS_OUTPUTS
+                    .iter()
+                    .map(|item| (*item).to_string())
+                    .collect(),
+            ))?,
+            find_most_prominent_face: true,
+            scoring_mode: processor::ScoringMode::Auto as i32,
+            image_source: processor::ImageSource::Webcam as i32,
+            liveness_validness_parameters: Some(default_liveness_validness_parameters()),
             ages_v2_validness_parameters: None,
             deepfake_validness_parameters: None,
         };
@@ -150,6 +179,24 @@ fn map_output(output: &str) -> PVResult<i32> {
     Ok(mapped as i32)
 }
 
+fn default_liveness_validness_parameters(
+) -> processor::process_full_image_request::LivenessValidnessParameters {
+    let mut params = processor::process_full_image_request::LivenessValidnessParameters::default();
+    params.min_face_sharpness = Some(0.15);
+    params.min_face_quality = Some(0.5);
+    params.min_face_acceptability = Some(0.15);
+    params.min_face_frontality = Some(70);
+    params.max_face_mask_probability = Some(0.5);
+    params.image_illumination_control = Some(50);
+    params.max_face_size_pct = Some(0.72);
+    params.image_boundary_width_pct = Some(0.8);
+    params.image_boundary_height_pct = Some(0.8);
+    params.min_face_size = Some(100);
+    params.max_face_roll_angle = Some(45);
+    params.fail_fast = Some(true);
+    params
+}
+
 fn to_process_image_response(
     response: processor::ProcessFullImageResponse,
 ) -> ProcessImageResponse {
@@ -179,8 +226,35 @@ fn to_face(face: processor::Face) -> Face {
         ages: None,
         genders: None,
         aligned_face_image: None,
+        acceptability: Some(face.acceptability),
         quality: Some(face.quality),
         mask: Some(face.mask),
+        liveness_validness: face.liveness_validness.map(to_validness),
+        liveness: face.liveness.map(to_liveness),
+    }
+}
+
+fn to_validness(validness: processor::Validness) -> Validness {
+    use processor::validness::Feedback;
+
+    Validness {
+        is_valid: validness.is_valid,
+        feedback: validness
+            .feedback
+            .into_iter()
+            .map(|item| {
+                Feedback::try_from(item)
+                    .unwrap_or(Feedback::Unknown)
+                    .as_str_name()
+                    .to_string()
+            })
+            .collect(),
+    }
+}
+
+fn to_liveness(liveness: processor::Liveness) -> Liveness {
+    Liveness {
+        liveness_probability: liveness.liveness_probability,
     }
 }
 

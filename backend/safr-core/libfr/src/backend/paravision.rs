@@ -595,13 +595,21 @@ impl FRBackend for PVBackend {
     ///This returns attributes about a face in an image
     ///this is different than an identity that a face represents which requires recognition
     async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
-        if spoof_check {
-            warn!("spoof check was requested but no avail in paravision v6");
-        }
+        let outputs = if spoof_check {
+            Some(vec![
+                "BOUNDING_BOX".to_string(),
+                "QUALITY".to_string(),
+                "LIVENESS".to_string(),
+                "LIVENESS_VALIDNESS".to_string(),
+            ])
+        } else {
+            ProcessFullImageRequest::default().outputs
+        };
 
         let img_req = ProcessFullImageRequest {
             image: general_purpose::STANDARD.encode(image),
-            ..ProcessFullImageRequest::default()
+            outputs,
+            find_most_prominent_face: true,
         };
 
         let img_resp = self.api.process_image(img_req).await?;

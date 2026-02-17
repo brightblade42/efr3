@@ -250,11 +250,11 @@ impl FRBackend for PVGrpcBackend {
     }
 
     async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
-        if spoof_check {
-            warn!("spoof check was requested but no avail in paravision v7 proc flow");
-        }
-
-        let img_resp = self.proc_api.process_image(image, None, true).await?;
+        let img_resp = if spoof_check {
+            self.proc_api.process_image_liveness(image).await?
+        } else {
+            self.proc_api.process_image(image, None, true).await?
+        };
 
         let faces = match img_resp.faces {
             Some(faces) => faces.into_iter().map(Face::from).collect(),

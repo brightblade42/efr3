@@ -187,9 +187,18 @@ pub struct BoundingBox {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Face {
     pub bbox: Option<BoundingBox>,
+    pub acceptability: Option<f32>,
     pub quality: Option<f32>,
     pub mask: Option<f32>,
+    pub liveness: Option<Liveness>,
     //pub extra: Option<Stuff>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Liveness {
+    pub is_live: bool,
+    pub feedback: Vec<String>,
+    pub score: f32,
 }
 
 pub mod utils {

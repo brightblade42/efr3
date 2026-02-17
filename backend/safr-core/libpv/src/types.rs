@@ -327,8 +327,11 @@ impl From<ProcessImageResponse> for CreateIdentitiesRequest {
                 ages: None,
                 genders: None,
                 aligned_face_image: None,
+                acceptability: None,
                 quality: None,
                 mask: None,
+                liveness_validness: None,
+                liveness: None,
             });
         //this is all we ever care about in this context
         let qualities = vec![prom_face.quality.unwrap_or(0_f32)];
@@ -368,8 +371,11 @@ impl From<&ProcessImageResponse> for CreateIdentitiesRequest {
                 ages: None,
                 genders: None,
                 aligned_face_image: None,
+                acceptability: None,
                 quality: None,
                 mask: None,
+                liveness_validness: None,
+                liveness: None,
             });
         //this is all we ever care about in this context
         //let prom_face = proc_img.faces.as_ref().unwrap().remove(face_idx);
@@ -454,6 +460,19 @@ pub struct PersonalAttribute {
 pub struct Embedding {
     pub embedding: Vec<f64>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Validness {
+    pub is_valid: bool,
+    #[serde(default)]
+    pub feedback: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Liveness {
+    pub liveness_probability: f32,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Face {
     pub bounding_box: Option<BoundingBox>,
@@ -462,8 +481,11 @@ pub struct Face {
     pub ages: Option<PersonalAttribute>,
     pub genders: Option<PersonalAttribute>,
     pub aligned_face_image: Option<String>, //cropped face from a larger image of possibly many faces
+    pub acceptability: Option<f32>,
     pub quality: Option<f32>,
     pub mask: Option<f32>,
+    pub liveness_validness: Option<Validness>,
+    pub liveness: Option<Liveness>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -49,11 +49,9 @@ async fn live_identity_grpc_health_check() -> TestResult {
     println!("identity health status: {:?}", status);
 
     if status == ServingStatus::Unknown {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "identity health returned UNKNOWN",
-        )
-        .into());
+        return Err(
+            io::Error::new(io::ErrorKind::Other, "identity health returned UNKNOWN").into(),
+        );
     }
 
     Ok(())
