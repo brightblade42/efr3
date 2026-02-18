@@ -82,6 +82,26 @@ There are two error classes:
 - Contract checks:
   - Missing required `fr_id` => HTTP `422`
 
+### `POST /fr/v2/recognize`
+
+- Content type:
+  - `multipart/form-data`
+- Multipart fields:
+  - `image` (required)
+  - `opts` (optional JSON mapped to `ImageOpts`, including `top_matches`)
+- Success response:
+  - JSON array of recognition results (`FRIdentity[]`)
+  - each result includes `possible_matches[]` entries with:
+    - `fr_id`
+    - `ext_id`
+    - `score` (match score)
+    - `details` (nullable)
+- Field semantics:
+  - `possible_matches[].score` is the canonical response field.
+  - `possible_matches[].confidence` is not emitted by `/fr/v2/recognize` responses.
+- Contract checks:
+  - Missing `image` => HTTP `200` + standard error envelope
+
 ### `POST /fr/v2/send-alert`
 
 - JSON body (TPass FR alert):

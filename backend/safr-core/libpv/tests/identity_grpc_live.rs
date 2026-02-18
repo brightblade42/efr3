@@ -27,7 +27,7 @@ const SYNTHETIC_DIMENSION: usize = 128;
 #[derive(Clone)]
 struct FaceTemplate {
     path: PathBuf,
-    embedding: Vec<f64>,
+    embedding: Vec<f32>,
     quality: f32,
 }
 
@@ -77,7 +77,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
         embeddings: vec![Embedding {
             embedding: first.embedding.clone(),
         }],
-        confidence: 0.0,
+        threshold: 0.0,
         qualities: vec![first.quality],
         group_ids: None,
         external_ids: Some(vec![external_id.clone()]),
@@ -109,7 +109,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
         embeddings: vec![Embedding {
             embedding: second.embedding.clone(),
         }],
-        confidence_threshold: 0,
+        threshold: 0.0,
         qualities: vec![second.quality],
     };
 
@@ -123,6 +123,11 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
             );
             if add_resp.faces.is_empty() {
                 issues.push("add_face returned zero faces".to_string());
+            } else if add_resp.faces[0].identity_id != created_id {
+                issues.push(format!(
+                    "add_face returned mismatched identity_id: expected {}, got {}",
+                    created_id, add_resp.faces[0].identity_id
+                ));
             }
         }
         Err(err) => issues.push(format!("add_face failed: {}", err)),
@@ -143,6 +148,13 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
             );
             if faces_resp.faces.is_empty() && faces_resp.total_size <= 0 {
                 issues.push("get_faces returned no face records".to_string());
+            } else if let Some(face) = faces_resp.faces.first() {
+                if face.identity_id != created_id {
+                    issues.push(format!(
+                        "get_faces returned mismatched identity_id: expected {}, got {}",
+                        created_id, face.identity_id
+                    ));
+                }
             }
         }
         Err(err) => issues.push(format!("get_faces failed: {}", err)),
@@ -158,7 +170,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
             let match_count = lookup_resp
                 .lookup_identities
                 .first()
-                .map_or(0usize, |item| item.identity_confidences.len());
+                .map_or(0usize, |item| item.matches.len());
             println!(
                 "lookup_single from created embedding -> match_count={} (created_id={})",
                 match_count, created_id
@@ -172,7 +184,8 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
 
     let delete_results = ident_api
         .delete_identities(Some(DeleteIdentitiesRequest {
-            fr_ids: vec![created_id.clone()],
+            ids: vec![created_id.clone()],
+            external_ids: None,
         }))
         .await?;
     let deleted = delete_results
@@ -293,7 +306,7 @@ async fn templates_from_proc_or_synthetic() -> Vec<FaceTemplate> {
     vec![synthetic_template(1.0), synthetic_template(2.0)]
 }
 
-fn extract_face_template(response: libpv::types::ProcessImageResponse) -> Option<(Vec<f64>, f32)> {
+fn extract_face_template(response: libpv::types::ProcessImageResponse) -> Option<(Vec<f32>, f32)> {
     let faces = response.faces?;
     if faces.is_empty() {
         return None;
@@ -353,7 +366,7 @@ fn normalize_endpoint(endpoint: &str) -> String {
 
 fn synthetic_template(seed: f64) -> FaceTemplate {
     let embedding = (0..SYNTHETIC_DIMENSION)
-        .map(|index| ((index as f64) + seed) / (SYNTHETIC_DIMENSION as f64))
+        .map(|index| (((index as f64) + seed) / (SYNTHETIC_DIMENSION as f64)) as f32)
         .collect();
 
     FaceTemplate {

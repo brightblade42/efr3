@@ -81,9 +81,9 @@ impl PVBackend {
         match ident {
             Some(id) => {
                 let duplicate = id
-                    .identity_confidences
+                    .matches
                     .iter()
-                    .find(|ic| ic.confidence >= config.min_dupe_match);
+                    .find(|ic| ic.score >= config.min_dupe_match);
 
                 if let Some(confidence_match) = duplicate {
                     let details = json!({
@@ -93,7 +93,7 @@ impl PVBackend {
 
                     Err(FRError::with_details(
                         1020,
-                        &format!("Duplicate: {} match", confidence_match.confidence),
+                        &format!("Duplicate: {} match", confidence_match.score),
                         details,
                     ))
                 } else {
@@ -183,7 +183,7 @@ impl PVBackend {
             )
         })?;
 
-        let confidence = pm.confidence;
+        let confidence = pm.score;
         let pm_val = serde_json::to_value(pm)?;
 
         let res = sqlx::query(
@@ -218,9 +218,9 @@ impl PVBackend {
                     .identities
                     .lookup_identities
                     .iter()
-                    .flat_map(|item| &item.identity_confidences)
+                    .flat_map(|item| &item.matches)
                     .map(|ic| {
-                        let n_conf = utils::roundf32(ic.confidence, 5);
+                        let n_conf = utils::roundf32(ic.score, 5);
                         let mut pm = PossibleMatch::new(ic.identity.id.clone(), n_conf);
                         pm.ext_id = ic.identity.external_id.clone().unwrap_or_default();
                         pm
@@ -229,8 +229,8 @@ impl PVBackend {
 
                 if pms.len() > 1 {
                     pms.sort_by(|a, b| {
-                        a.confidence
-                            .partial_cmp(&b.confidence)
+                        a.score
+                            .partial_cmp(&b.score)
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
                     pms.reverse();
@@ -244,7 +244,7 @@ impl PVBackend {
             .filter(|fr| {
                 fr.possible_matches
                     .first()
-                    .is_some_and(|pm| pm.confidence >= min_match)
+                    .is_some_and(|pm| pm.score >= min_match)
             })
             .collect()
     }
@@ -303,7 +303,7 @@ impl FRBackend for PVBackend {
             }
         };
 
-        id_req.confidence = config.min_dupe_match;
+        id_req.threshold = config.min_dupe_match;
         id_req.external_ids = ext_id.clone().map(|id| vec![id]);
         let ident_res = self.ident_api.create_identities(id_req).await;
 
@@ -460,7 +460,7 @@ impl FRBackend for PVBackend {
 
         let mut af_req = AddFaceRequest::from(img_res);
         af_req.identity_id = fr_id.to_string();
-        af_req.confidence_threshold = 0;
+        af_req.threshold = 0.0;
 
         let face_resp = self.ident_api.add_face(af_req).await?;
         Ok(serde_json::to_value(face_resp)?)

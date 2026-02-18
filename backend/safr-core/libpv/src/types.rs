@@ -95,13 +95,14 @@ pub struct ProcessImageResponse {
 pub struct AddFaceRequest {
     pub identity_id: String, //the main enrollment id
     pub embeddings: Vec<Embedding>,
-    pub confidence_threshold: i32, //TODO: confidence_threshold  name may be different in v5
-    pub qualities: Vec<f32>,       //TODO: not sure we're going to use this. is ther a default
+    pub threshold: f32,
+    pub qualities: Vec<f32>, //TODO: not sure we're going to use this. is ther a default
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FaceInfo {
     pub id: String,
+    pub identity_id: String,
     pub created_at: String,
     pub model: String,
     pub quality: f32,
@@ -133,7 +134,7 @@ impl From<ProcessImageResponse> for AddFaceRequest {
                 //does this even make sense?
                 identity_id: "".to_string(), //we'd need to update this at the return site
                 embeddings: vec![],
-                confidence_threshold: 0,
+                threshold: 0.0,
                 qualities: vec![],
             };
         };
@@ -154,7 +155,7 @@ impl From<ProcessImageResponse> for AddFaceRequest {
         Self {
             identity_id: "".to_string(), //we'd need to update this at the return site
             embeddings,
-            confidence_threshold: 0,
+            threshold: 0.0,
             qualities,
         }
     }
@@ -233,14 +234,14 @@ impl From<&ProcessImageResponse> for LookupRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct IdentityConfidence {
+pub struct IdentityMatch {
     pub identity: Identity,
-    pub confidence: f32, //or f32?
+    pub score: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LookupIdentity {
-    pub identity_confidences: Vec<IdentityConfidence>,
+    pub matches: Vec<IdentityMatch>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -298,8 +299,7 @@ pub struct RegistrationError {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateIdentitiesRequest {
     pub embeddings: Vec<Embedding>,
-    pub confidence: f32,
-    //pub confidence_threshold: f32,
+    pub threshold: f32,
     pub qualities: Vec<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_ids: Option<Vec<String>>,
@@ -345,8 +345,8 @@ impl From<ProcessImageResponse> for CreateIdentitiesRequest {
             group_ids: None,
             qualities,
             embeddings,
-            confidence: 0.20_f32, //TODO: why did we do this?
-            external_ids: None,   //ccodes might actually be useful
+            threshold: 0.20_f32,
+            external_ids: None, //ccodes might actually be useful
         }
     }
 }
@@ -390,23 +390,24 @@ impl From<&ProcessImageResponse> for CreateIdentitiesRequest {
             group_ids: None,
             qualities,
             embeddings,
-            confidence: 0.20_f32, //TODO: why did we do this?
-            external_ids: None,   //ccodes might actually be useful
+            threshold: 0.20_f32,
+            external_ids: None, //ccodes might actually be useful
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeleteIdentitiesRequest {
-    pub fr_ids: Vec<String>,
-    //#[serde(skip_serializing_if = "Option::is_none")]
-    //pub full_delete: Option<bool>, //includes requesting delete to linked servers like tpass
+    pub ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_ids: Option<Vec<String>>,
 }
 
 impl From<&str> for DeleteIdentitiesRequest {
     fn from(id: &str) -> Self {
         Self {
-            fr_ids: vec![id.to_string()],
+            ids: vec![id.to_string()],
+            external_ids: None,
         }
     }
 }
@@ -459,7 +460,7 @@ pub struct PersonalAttribute {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Embedding {
-    pub embedding: Vec<f64>,
+    pub embedding: Vec<f32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -478,7 +479,7 @@ pub struct Liveness {
 pub struct Face {
     pub bounding_box: Option<BoundingBox>,
     pub landmarks: Option<Landmarks>,
-    pub embedding: Option<Vec<f64>>, //TODO: should this be Embedding? i think we just convert later.
+    pub embedding: Option<Vec<f32>>, //TODO: should this be Embedding? i think we just convert later.
     pub ages: Option<PersonalAttribute>,
     pub genders: Option<PersonalAttribute>,
     pub aligned_face_image: Option<String>, //cropped face from a larger image of possibly many faces

@@ -143,16 +143,17 @@ pub enum SearchBy {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PossibleMatch {
     pub fr_id: String,
-    pub confidence: f32,
+    #[serde(alias = "confidence")]
+    pub score: f32,
     pub ext_id: String,
     pub details: Option<Value>,
 }
 
 impl PossibleMatch {
-    pub fn new(fr_id: String, confidence: f32) -> Self {
+    pub fn new(fr_id: String, score: f32) -> Self {
         Self {
             fr_id,
-            confidence,
+            score,
             ext_id: String::new(),
             details: None,
         }
@@ -212,5 +213,39 @@ pub mod utils {
     pub fn roundf32(x: f32, decimals: u32) -> f32 {
         let y = 10i32.pow(decimals) as f32;
         (x * y).round() / y
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PossibleMatch;
+    use serde_json::json;
+
+    #[test]
+    fn possible_match_serializes_score_field() {
+        let possible_match = PossibleMatch {
+            fr_id: "i_test".to_string(),
+            score: 0.99,
+            ext_id: "123".to_string(),
+            details: None,
+        };
+
+        let value = serde_json::to_value(possible_match).expect("serialize possible match");
+        assert!(value.get("score").is_some());
+        assert!(value.get("confidence").is_none());
+    }
+
+    #[test]
+    fn possible_match_deserializes_confidence_alias() {
+        let value = json!({
+            "fr_id": "i_test",
+            "confidence": 0.75,
+            "ext_id": "456",
+            "details": null
+        });
+
+        let possible_match: PossibleMatch =
+            serde_json::from_value(value).expect("deserialize possible match from confidence");
+        assert!((possible_match.score - 0.75).abs() < f32::EPSILON);
     }
 }
