@@ -311,6 +311,7 @@ impl From<ProcessImageResponse> for CreateIdentitiesRequest {
     fn from(pr: ProcessImageResponse) -> Self {
         //we are only ever interested in a single face per image for enrollment.
         //The detector may find more, so we use most_prominent_face.
+        //NOTE: i think new version always put prominent at idx 0
         let face_idx = match pr.most_prominent_face_idx {
             Some(-1) => 0_usize,
             Some(i) => i as usize,

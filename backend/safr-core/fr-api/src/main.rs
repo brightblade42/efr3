@@ -66,8 +66,7 @@ struct Config {
 impl Config {
     fn new() -> Self {
         //mostly precautionary, env vars are provided by docker-compose files
-        let dev_url = "192.168.0.204";
-        //let dev_url = "174.51.11.19";
+        let dev_url = "100.79.241.8";
         let min_match = env::var("MIN_MATCH").unwrap_or("0.95".to_string());
         let min_quality = env::var("MIN_QUALITY").unwrap_or("0.80".to_string());
         let min_acceptability =
@@ -77,8 +76,11 @@ impl Config {
         let port = env::var("FRAPI_PORT").unwrap_or("3000".to_string());
 
         Self {
+            //TODO: remove urls for http api since we've moved to gRPC
             pv_ident_url: env::var("PV_IDENT_URL").unwrap_or(format!("http://{}:5656", dev_url)),
             pv_proc_url: env::var("PV_PROC_URL").unwrap_or(format!("http://{}:50051", dev_url)),
+
+            //TODO: we don't use the term SAFR anymore, it's EYEFR
             db_addr: env::var("SAFR_DB_ADDR").unwrap_or("localhost".to_string()),
             db_port: env::var("SAFR_DB_PORT").unwrap_or("5433".to_string()),
             db_user: env::var("SAFR_DB_USER").unwrap_or("admin".to_string()),
@@ -89,8 +91,12 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(5),
+
+            //NOTE: this is currently handled by a reverse proxy.
             _cert_dir: env::var("CERT_DIR").unwrap_or("/cert".to_string()), //should we keep env?
             _use_tls: use_tls.parse().unwrap_or(false),
+
+            //NOTE: seems unneeded since we fallback on a known good value when parsing env vars
             min_match: min_match.parse().unwrap_or(0.95),
             min_quality: min_quality.parse().unwrap_or(0.80),
             min_acceptability: min_acceptability.parse().unwrap_or(0.80),
@@ -124,6 +130,7 @@ fn api_v2_routes() -> Router<AppState> {
             "/enrollment/delete",
             post(enrollment_handlers::delete_enrollment),
         )
+        //NOTE: this is a very dangerous function. maybe we block it.
         .route(
             "/enrollment/reset",
             post(enrollment_handlers::reset_enrollments),
@@ -142,10 +149,7 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/edit-profile", post(profile_handlers::edit_profile))
         .route("/send-alert", post(tpass_handlers::send_fr_alert))
         .route("/detect", post(recognition_handlers::detect_image)) //detect, bbox.
-        .route(
-            "/detect_spoof",
-            post(recognition_handlers::detect_spoof_image),
-        ) //detect, bbox.
+        //NOTE: detect_spoof was replaced with validate-image
         .route(
             "/validate-image",
             post(recognition_handlers::detect_spoof_image),
@@ -206,11 +210,13 @@ async fn main() {
         }
     };
 
+    //Arc'em up!
     let tpass_client = Arc::new(TPassClient::new(None));
     let fr_repo = Arc::new(SqlxFrRepository::new(db_pool.clone()));
     let fr_remote_env = env::var("FR_REMOTE").ok();
     let fr_backend_env = env::var("FR_BACKEND").ok();
 
+    //NOTE: not sure i understand the purpose of this
     let remote = match RemoteRuntime::from_env(fr_remote_env.clone(), tpass_client.clone()) {
         Ok(remote) => remote,
         Err(e) => {
@@ -255,6 +261,7 @@ async fn main() {
     let app = Router::new()
         .nest("/fr/v2", api_v2_routes())
         .nest("/tpass", tpass_routes())
+        //NOTE: i think we moved site serving out of here and up to the rev proxy
         .nest_service("/_app", ServeDir::new("./app/_app"))
         .layer(
             ServiceBuilder::new().layer(
@@ -265,24 +272,6 @@ async fn main() {
         )
         .with_state(app_state);
 
-    //TODO: setup for http redirect.
-    // if config.use_tls {
-    //     let addr = SocketAddr::from(([0, 0, 0, 0], 443));
-    //
-    //     //prod
-    //     let key_file = "/cert/fr-api-key.pem";
-    //     let cert_file = "/cert/fr-api-cert.pem";
-    //     //setup tls
-    //     let tls_conf = RustlsConfig::from_pem_file(cert_file, key_file)
-    //         .await
-    //         .unwrap();
-    //
-    //     info!("listening on {}", addr);
-    //     axum_server::bind_rustls(addr, tls_conf)
-    //         .serve(app.into_make_service())
-    //         .await
-    //         .unwrap();
-    // } else {
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     info!("listening on {}", addr);
 
