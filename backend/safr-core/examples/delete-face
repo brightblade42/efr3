@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+FR_ID="${1:-}"
+FACE_ID="${2:-}"
+require_arg "$FR_ID" "fr_id"
+require_arg "$FACE_ID" "face_id"
+
+PAYLOAD="$(printf '{"fr_id":"%s","face_id":"%s"}' "$FR_ID" "$FACE_ID")"
+
+curl_json POST "/fr/v2/enrollment/delete-face" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD"

@@ -230,8 +230,8 @@ impl FRService {
         Ok(backend_result)
     }
 
-    pub async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
-        self.fr_engine.detect_face(image, spoof_check).await
+    pub async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Value> {
+        self.fr_engine.detect_face(image, liveness_check).await
     }
 
     pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {

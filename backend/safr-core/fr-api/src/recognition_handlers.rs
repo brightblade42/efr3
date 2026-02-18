@@ -10,7 +10,7 @@ use libfr::backend::MatchConfig;
 use libfr::Face;
 
 /// Spoof check flag is currently passed through to backend implementation.
-pub async fn detect_spoof_image(
+pub async fn liveness_check(
     State(app_state): State<AppState>,
     multipart: Multipart,
 ) -> WResult<Json<Value>> {

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+IMAGE="${1:-$DEFAULT_IMAGE}"
+LAST_NAME="${2:-Smoke}"
+require_image "$IMAGE"
+
+echo "== validate-image =="
+"$SCRIPT_DIR/validate-image" "$IMAGE"
+
+echo "== detect-faces =="
+"$SCRIPT_DIR/detect-faces" "$IMAGE"
+
+echo "== recognize =="
+"$SCRIPT_DIR/recognize" "$IMAGE"
+
+echo "== enrollment metadata =="
+"$SCRIPT_DIR/enrollment-metadata"
+
+echo "== enrollment roster =="
+"$SCRIPT_DIR/enrollment-roster"
+
+echo "== enrollment search (last_name=$LAST_NAME) =="
+"$SCRIPT_DIR/enrollment-search-lastname" "$LAST_NAME"
+
+echo "Done."

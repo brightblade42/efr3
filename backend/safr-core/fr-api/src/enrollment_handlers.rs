@@ -34,8 +34,10 @@ pub async fn create_enrollment(
     let res = app_state
         .fr_service
         .create_enrollment(enroll_data, mconf)
-        .await?;
-    Ok(Json(res))
+        .await;
+    info!("hello");
+    info!("{:?}", res);
+    Ok(Json(res?))
 }
 
 /// Returns a list of every enrollment in the system. We will want to add paging.

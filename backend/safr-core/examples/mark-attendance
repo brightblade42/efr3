@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+IMAGE="${1:-$DEFAULT_IMAGE}"
+ATT_KIND="${2:-check_in}"  # check_in | check_out
+LOCATION="${3:-Front Gate}"
+require_image "$IMAGE"
+
+OPTS="$(printf '{"top_matches":1,"include_detected_faces":false,"on_match":"id_only","min_match":0.95,"rec_location":"%s","att_kind":"%s"}' "$LOCATION" "$ATT_KIND")"
+
+curl_json POST "/fr/v2/mark-attendance" \
+  -F "opts=${OPTS};type=application/json" \
+  -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg"

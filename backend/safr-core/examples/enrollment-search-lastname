@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+LAST_NAME="${1:-Smoke}"
+PAYLOAD="$(printf '{"last_name":"%s"}' "$LAST_NAME")"
+
+curl_json POST "/fr/v2/enrollment/search" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD"

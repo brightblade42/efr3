@@ -177,9 +177,9 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
+    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Value> {
         match self {
-            Self::Paravision(backend) => backend.detect_face(image, spoof_check).await,
+            Self::Paravision(backend) => backend.detect_face(image, liveness_check).await,
             #[cfg(test)]
             Self::Mock => Ok(json!([])),
         }

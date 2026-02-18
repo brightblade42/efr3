@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+API_URL="${API_URL:-http://localhost:3000}"
+FACE_DIR="${FACE_DIR:-/Users/ryan/faces}"
+DEFAULT_IMAGE="${DEFAULT_IMAGE:-${FACE_DIR}/amy1.jpg}"
+
+print_json() {
+  if command -v jq >/dev/null 2>&1; then
+    jq . 2>/dev/null || cat
+  else
+    cat
+  fi
+}
+
+curl_json() {
+  if [[ $# -lt 2 ]]; then
+    echo "usage: curl_json <METHOD> <PATH> [curl args ...]" >&2
+    return 2
+  fi
+
+  local method="$1"
+  local path="$2"
+  shift 2
+
+  local tmp
+  tmp="$(mktemp)"
+  local code
+
+  code="$(curl -sS -o "$tmp" -w "%{http_code}" -X "$method" "${API_URL}${path}" "$@")"
+  echo "HTTP ${code} ${API_URL}${path}"
+  cat "$tmp" | print_json
+  echo
+  rm -f "$tmp"
+}
+
+require_image() {
+  local image_path="$1"
+  if [[ ! -f "$image_path" ]]; then
+    echo "image not found: $image_path" >&2
+    exit 1
+  fi
+}
+
+require_arg() {
+  local value="$1"
+  local name="$2"
+  if [[ -z "$value" ]]; then
+    echo "missing required argument: $name" >&2
+    exit 1
+  fi
+}

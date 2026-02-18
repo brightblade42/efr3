@@ -411,8 +411,8 @@ impl FRBackend for PVBackend {
         }))
     }
 
-    async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
-        let img_resp = if spoof_check {
+    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Value> {
+        let img_resp = if liveness_check {
             self.proc_api.process_image_liveness(image).await?
         } else {
             self.proc_api.process_image(image, None, true).await?

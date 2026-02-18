@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+IMAGE="${1:-$DEFAULT_IMAGE}"
+FIRST_NAME="${2:-Ryan}"
+LAST_NAME="${3:-Smoke}"
+require_image "$IMAGE"
+
+DETAILS="$(printf '{"kind":"Min","first_name":"%s","last_name":"%s"}' "$FIRST_NAME" "$LAST_NAME")"
+
+curl_json POST "/fr/v2/enrollment/create" \
+  -F "details=${DETAILS};type=application/json" \
+  -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg"

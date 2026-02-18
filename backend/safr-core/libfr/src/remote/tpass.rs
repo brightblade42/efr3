@@ -76,6 +76,9 @@ impl Remote for TPassClient {
                             id: None,
                         });
 
+                        info!("searh results here");
+                        info!("{:?}", sr);
+
                         Ok(vec![sr])
 
                         //TODO: if search returns nothing, then fail the enrollment, suggest creating
@@ -143,8 +146,18 @@ impl Remote for TPassClient {
                 //do a name search
                 let full_name = format!("{},{}", last_name, first_name);
 
+                let sr = self.search_by_name(&full_name).await;
+                match sr {
+                    Err(er) => {
+                        info!("holy moly");
+                        info!("{}", er);
+                    }
+                    _ => info!("goo stuff"),
+                }
+
                 let sr = match self.search_by_name(&full_name).await?.first() {
                     Some(item) => {
+                        info!("HELOO SOME!!!!");
                         let x = item["imgUrl"].as_str().ok_or_else(|| {
                             FRError::with_code(1002, "name search returned profile without imgUrl")
                         })?;
@@ -159,6 +172,8 @@ impl Remote for TPassClient {
                     None => None,
                 };
 
+                info!("searh results here");
+                info!("{:?}", sr);
                 sr
             }
             SearchBy::ExtID(IDKind::Num(ccode)) => {

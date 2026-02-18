@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+FR_ID="${1:-}"
+IMAGE="${2:-$DEFAULT_IMAGE}"
+require_arg "$FR_ID" "fr_id"
+require_image "$IMAGE"
+
+curl_json POST "/fr/v2/enrollment/add-face?fr_id=${FR_ID}" \
+  -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg"

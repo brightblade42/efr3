@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+COMP_ID="${1:-}"
+PINFO_CCODE="${2:-}"
+require_arg "$COMP_ID" "CompId"
+require_arg "$PINFO_CCODE" "PInfo"
+
+PAYLOAD="$(printf '{"CompId":%s,"PInfo":%s}' "$COMP_ID" "$PINFO_CCODE")"
+
+curl_json POST "/fr/v2/send-alert" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD"
