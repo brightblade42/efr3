@@ -91,7 +91,6 @@ impl Config {
                 .unwrap_or(5),
             _cert_dir: env::var("CERT_DIR").unwrap_or("/cert".to_string()), //should we keep env?
             _use_tls: use_tls.parse().unwrap_or(false),
-
             min_match: min_match.parse().unwrap_or(0.95),
             min_quality: min_quality.parse().unwrap_or(0.80),
             min_acceptability: min_acceptability.parse().unwrap_or(0.80),
@@ -256,24 +255,14 @@ async fn main() {
     let app = Router::new()
         .nest("/fr/v2", api_v2_routes())
         .nest("/tpass", tpass_routes())
-        //This is how we serve our static svelte files.
         .nest_service("/_app", ServeDir::new("./app/_app"))
         .layer(
             ServiceBuilder::new().layer(
                 CorsLayer::new()
-                    //   .allow_credentials(true)
                     .allow_methods([Method::GET, Method::POST])
                     .allow_origin(Any),
             ),
         )
-        // .fallback_service(get_service(ServeFile::new("./app/200.html")).handle_error(
-        //     |_| async move {
-        //         (
-        //             StatusCode::INTERNAL_SERVER_ERROR,
-        //             "couldn't load main index file",
-        //         )
-        //     },
-        // ))
         .with_state(app_state);
 
     //TODO: setup for http redirect.

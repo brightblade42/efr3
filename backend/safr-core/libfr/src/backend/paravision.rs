@@ -1,78 +1,58 @@
 use super::{FRBackend, FRResult, MatchConfig};
 use crate::{utils, EnrollData, EnrollDetails, FRError};
-use crate::{FRIdentity, Face, MinDetails, PossibleMatch};
-use base64::{engine::general_purpose, Engine as _};
+use crate::{FRIdentity, Face, PossibleMatch};
 use bytes::Bytes;
+use libpv::identity_grpc::PVIdentityGrpcApi;
+use libpv::proc_grpc::PVProcGrpcApi;
 use libpv::types::{
     AddFaceRequest, CreateIdentitiesRequest, DeleteFaceRequest, DeleteIdentitiesRequest, Embedding,
-    GetFacesRequest, LookupRequest, LookupResponse, ProcessFullImageRequest,
+    GetFacesRequest, LookupRequest, LookupResponse,
 };
-use libpv::PVApi;
 use serde_json::{json, Value};
-
 use sqlx::PgPool;
-
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 #[derive(Clone)]
 pub struct PVBackend {
-    api: PVApi,
+    proc_api: PVProcGrpcApi,
+    ident_api: PVIdentityGrpcApi,
     db: PgPool,
 }
 
-pub struct FRIDPair {
-    pub image_id: String,
-    pub face_id: String,
-}
-
 #[derive(sqlx::FromRow)]
-struct EnrollmentRow {
-    fr_id: String,
+struct EnrollmentRosterRow {
+    fr_id: Option<String>,
     ext_id: String,
-    summary: Value,
-}
-
-impl EnrollmentRow {
-    fn into_min_details(self) -> MinDetails {
-        MinDetails {
-            ext_id: normalize_ext_id_or_default(&self.fr_id, &self.ext_id),
-            fr_id: self.fr_id,
-            details: self.summary,
-        }
-    }
-}
-
-fn normalize_ext_id_or_default(fr_id: &str, ext_id: &str) -> String {
-    let trimmed = ext_id.trim();
-    if trimmed.is_empty() {
-        warn!("ext_id was empty for fr_id '{}'; defaulting to '0'", fr_id);
-        return "0".to_string();
-    }
-
-    trimmed.to_string()
+    first_name: Option<String>,
+    last_name: Option<String>,
+    middle_name: Option<String>,
+    img_url: Option<String>,
+    raw_data: Option<Value>,
 }
 
 impl PVBackend {
-    ///creates the backend using an existing database pool
     pub fn new(proc_url: String, ident_url: String, db: PgPool) -> Self {
         Self {
-            api: PVApi::new(proc_url, ident_url),
+            proc_api: PVProcGrpcApi::new(proc_url),
+            ident_api: PVIdentityGrpcApi::new(ident_url),
             db,
         }
     }
 
-    ///checks if there is a close enough match to determine if a person is already enrolled,
-    //perhaps option, to add as secondary face or reject. for now, reject
     async fn get_enrollable_face(
         &self,
         enroll_data: &EnrollData,
         config: MatchConfig,
     ) -> FRResult<CreateIdentitiesRequest> {
-        //let r = self.api.lookup(req) //
+        let image = enroll_data.image.clone().ok_or_else(|| {
+            FRError::with_code(
+                1010,
+                "An image is required for enrollment but was not found",
+            )
+        })?;
 
-        let img_resp = self.api.process_image(enroll_data).await?;
+        let img_resp = self.proc_api.process_image(image, None, true).await?;
 
-        //one face per image please.
         if img_resp.most_prominent_face_idx.is_none() {
             return Err(FRError::with_code(
                 1080,
@@ -91,51 +71,41 @@ impl PVBackend {
             FRError::with_code(1083, "most prominent face did not include an embedding")
         })?;
 
-        //cool
         let embedding = Embedding {
             embedding: emb.to_vec(),
         };
 
-        let resp = self.api.lookup_single(embedding).await?;
-
+        let resp = self.ident_api.lookup_single(embedding).await?;
         let ident = resp.lookup_identities.first();
 
-        debug!("{:?}", &ident);
-
-        let is_duped = match ident {
+        match ident {
             Some(id) => {
-                let r = id
+                let duplicate = id
                     .identity_confidences
                     .iter()
                     .find(|ic| ic.confidence >= config.min_dupe_match);
 
-                if let Some(cc) = r {
-                    //Err(FRError::with_code(1020, &format!("Duplicate: {} match", cc.confidence)))
-                    let det = json!({
-                        "fr_id": cc.identity.id,
-                        "created_at": cc.identity.created_at
+                if let Some(confidence_match) = duplicate {
+                    let details = json!({
+                        "fr_id": confidence_match.identity.id,
+                        "created_at": confidence_match.identity.created_at,
                     });
 
                     Err(FRError::with_details(
                         1020,
-                        &format!("Duplicate: {} match", cc.confidence),
-                        det,
+                        &format!("Duplicate: {} match", confidence_match.confidence),
+                        details,
                     ))
                 } else {
                     Ok(img_resp.into())
                 }
             }
             None => Ok(img_resp.into()),
-        };
-
-        is_duped
+        }
     }
 
-    ///if there's an error during enrollment, we log it.
-    ///depending on the kind of error we may be able to retry later by pulling
-    ///from the log table.
-    pub(crate) async fn log_enroll_err(&self, action: &str, e: &FRError, details: &EnrollDetails) {
-        error!("Enrollment error: {}", e.message); //what if the log goes wrong?
+    async fn log_enroll_err(&self, action: &str, e: &FRError, details: &EnrollDetails) {
+        error!("Enrollment error: {}", e.message);
         let e_val = match serde_json::to_value(e) {
             Ok(v) => v,
             Err(err) => {
@@ -153,63 +123,22 @@ impl PVBackend {
         };
 
         let res = sqlx::query(
-            r" INSERT into paravision.enrollment_log (action,error,message,details) VALUES ($1,$2,$3,$4) ")
-            .bind(action)
-            .bind(e_val)
-            .bind(&e.message)
-            .bind(details_val)
-            .execute(&self.db).await;
+            r" INSERT into paravision.enrollment_log (action,error,message,details) VALUES ($1,$2,$3,$4) ",
+        )
+        .bind(action)
+        .bind(e_val)
+        .bind(&e.message)
+        .bind(details_val)
+        .execute(&self.db)
+        .await;
 
-        //the log itself failed, if this happens we're in all kinds of trouble
         if res.is_err() {
             error!("#GREAT SCOTT! The database write failed! Abandon all hope. we should panic.");
         }
     }
 
-    //log the time and place of an identification with optional data
-    async fn log_identification_db(
-        &self,
-        fr_identity: &FRIdentity,
-        extra: Option<&Value>,
-        location: &str,
-    ) -> FRResult<()> {
-        debug!("log_identification_db: logging the time and place a person was identified.");
-
-        let pm_res = fr_identity.possible_matches.first();
-        let pm = match pm_res {
-            None => {
-                return Err(FRError::with_code(
-                    2020,
-                    "could not log positive identification. identity has no possible matches",
-                ))
-            }
-            Some(pm) => pm,
-        };
-
-        let confidence = pm.confidence;
-
-        let pm_val = serde_json::to_value(pm)?;
-
-        let res = sqlx::query(r"Insert into public.fr_log (pmatch, extra, location, confidence) VALUES ($1, $2, $3, $4)")
-            .bind(pm_val)
-            .bind(extra)
-            .bind(location)
-            .bind(confidence)
-            .execute(&self.db).await;
-
-        if let Err(err) = res {
-            error!("#GREAT SCOTT! The database write failed for log_identification! Abandon all hope. {:?}", err);
-            return Err(FRError::with_code(
-                2021,
-                "#GREAT SCOTT! The database write failed for log_identification! Abandon all hope",
-            ));
-        };
-
-        Ok(())
-    }
-
-    pub(crate) async fn log_delete_err(&self, action: &str, e: &FRError, details: Option<Value>) {
-        error!("Delete Enrollment error: {}", e.message); //what if the log goes wrong?
+    async fn log_delete_err(&self, action: &str, e: &FRError, details: Option<Value>) {
+        error!("Delete Enrollment error: {}", e.message);
         let e_val = match serde_json::to_value(e) {
             Ok(v) => v,
             Err(err) => {
@@ -227,36 +156,62 @@ impl PVBackend {
         };
 
         let res = sqlx::query(
-            r" INSERT into paravision.enrollment_log (action,error,message,details) VALUES ($1,$2,$3,$4) ")
-            .bind(action)
-            .bind(e_val)
-            .bind(&e.message)
-            .bind(details_val)
-            .execute(&self.db).await;
+            r" INSERT into paravision.enrollment_log (action,error,message,details) VALUES ($1,$2,$3,$4) ",
+        )
+        .bind(action)
+        .bind(e_val)
+        .bind(&e.message)
+        .bind(details_val)
+        .execute(&self.db)
+        .await;
 
-        //the log itself failed, if this happens we're in all kinds of trouble
         if let Err(_lg_err) = res {
             error!("#GREAT SCOTT! The database write failed! Abandon all hope. we should panic.");
         }
     }
 
-    ///convert the data from paravision specific to our own format and add some
-    ///basic detail information that was provided during enrollment.
-    pub(crate) async fn to_fr_identities(
+    async fn log_identification_db(
         &self,
-        lookups: &[LookupResponse],
-        min_match: f32,
-        _verbose: bool,
-    ) -> Result<Vec<FRIdentity>, FRError> {
-        //FIXME: lookup_identities is an array that contains an array of
-        // identity_confidences. This doesn't seem right. should be a single
-        // array repr all possible matches for a face.
-        // we use a flat_map to hoist up the inner vec but this is just
-        // working around a poor structure
+        fr_identity: &FRIdentity,
+        extra: Option<&Value>,
+        location: &str,
+    ) -> FRResult<()> {
+        let pm = fr_identity.possible_matches.first().ok_or_else(|| {
+            FRError::with_code(
+                2020,
+                "could not log positive identification. identity has no possible matches",
+            )
+        })?;
 
-        //this is crazy time yo.
-        //transform to friendlier types, do a sort, filter out low confidences.
-        let fr_idents: Vec<FRIdentity> = lookups
+        let confidence = pm.confidence;
+        let pm_val = serde_json::to_value(pm)?;
+
+        let res = sqlx::query(
+            r"Insert into public.fr_log (pmatch, extra, location, confidence) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(pm_val)
+        .bind(extra)
+        .bind(location)
+        .bind(confidence)
+        .execute(&self.db)
+        .await;
+
+        if let Err(err) = res {
+            error!(
+                "#GREAT SCOTT! The database write failed for log_identification! {:?}",
+                err
+            );
+            return Err(FRError::with_code(
+                2021,
+                "#GREAT SCOTT! The database write failed for log_identification!",
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn to_fr_identities(&self, lookups: &[LookupResponse], min_match: f32) -> Vec<FRIdentity> {
+        lookups
             .iter()
             .map(|item| {
                 let mut pms: Vec<PossibleMatch> = item
@@ -291,24 +246,25 @@ impl PVBackend {
                     .first()
                     .is_some_and(|pm| pm.confidence >= min_match)
             })
-            .collect();
-
-        Ok(fr_idents) //let's go boys!
+            .collect()
     }
 
-    async fn get_details_from_name(&self, name: &str) -> FRResult<Vec<MinDetails>> {
-        let like_pattern = format!("{}%", name);
-        let rows: Vec<EnrollmentRow> = sqlx::query_as(
-            r#"SELECT fr_id, ext_id, summary FROM paravision.enrollment WHERE summary->>'last_name' LIKE $1"#,
-        )
-        .bind(like_pattern)
-        .fetch_all(&self.db)
-        .await?;
+    fn profile_to_enrollment_item(row: EnrollmentRosterRow) -> Value {
+        let details = row.raw_data.unwrap_or_else(|| {
+            json!({
+                "first_name": row.first_name,
+                "last_name": row.last_name,
+                "middle_name": row.middle_name,
+                "img_url": row.img_url,
+            })
+        });
 
-        Ok(rows
-            .into_iter()
-            .map(EnrollmentRow::into_min_details)
-            .collect())
+        json!({
+            "fr_id": row.fr_id,
+            "ext_id": row.ext_id.parse::<u64>().unwrap_or(0),
+            "ext_id_str": row.ext_id,
+            "details": details,
+        })
     }
 }
 
@@ -319,7 +275,6 @@ impl FRBackend for PVBackend {
         config: MatchConfig,
         ext_id: Option<String>,
     ) -> FRResult<Value> {
-        //at this point, we must have acquired an image from some source. If we don't, we can't enroll
         if enroll_data.image.is_none() {
             return Err(FRError::with_code(
                 1010,
@@ -328,8 +283,6 @@ impl FRBackend for PVBackend {
         }
 
         let ident_req = self.get_enrollable_face(&enroll_data, config).await;
-        //dupe check here, we've validated the presence of an image, now we must check existence.
-        //TODO: these are the minimum details, we want to add out full details as well yes | no
         let details = match enroll_data.details {
             Some(details) => details,
             None => {
@@ -338,23 +291,21 @@ impl FRBackend for PVBackend {
                     "Enrollment details were not provided or could not be resolved",
                 ));
             }
-        }; //details could be None if remote call fails or returns nothing.
+        };
 
         let mut id_req = match ident_req {
             Ok(id_req) => id_req,
             Err(dup_err) => {
-                error!("Received PV dupes. log it. ");
                 self.log_enroll_err("create_enrollment", &dup_err, &details)
                     .await;
-                let v = serde_json::to_value(&details).unwrap_or_else(|_| json!({}));
-                return Err(FRError::with_details(1020, &dup_err.message, v));
+                let value = serde_json::to_value(&details).unwrap_or_else(|_| json!({}));
+                return Err(FRError::with_details(1020, &dup_err.message, value));
             }
         };
 
-        //if we got here, we are cleared for performing the enrollment.
-        id_req.confidence = config.min_dupe_match; //basically a double dupe check.
+        id_req.confidence = config.min_dupe_match;
         id_req.external_ids = ext_id.clone().map(|id| vec![id]);
-        let ident_res = self.api.create_identities(id_req).await; //fr template create
+        let ident_res = self.ident_api.create_identities(id_req).await;
 
         let ident = match ident_res {
             Ok(idents) if !idents.identities.is_empty() => {
@@ -365,14 +316,13 @@ impl FRBackend for PVBackend {
                     )
                 })?
             }
-            Ok(_idents) => {
+            Ok(_) => {
                 return Err(FRError::with_code(
                     1021,
                     "Enrollment failed. No identity was returned from paravision",
-                ))
+                ));
             }
             Err(e) => {
-                //log enrollment error and return
                 let fr_err = FRError::from(e);
                 self.log_enroll_err("create_enrollment", &fr_err, &details)
                     .await;
@@ -383,8 +333,6 @@ impl FRBackend for PVBackend {
         let fr_id = ident.id;
         let eid_str = ext_id.unwrap_or_default();
         let eid_num = eid_str.parse::<u64>().unwrap_or(0);
-
-        //TODO: too much json. start thinking about structs
         Ok(json!({"fr_id": fr_id, "ext_id": eid_num, "ext_id_str": eid_str}))
     }
 
@@ -392,7 +340,7 @@ impl FRBackend for PVBackend {
         let del_req = DeleteIdentitiesRequest::from(face_id);
 
         let res = self
-            .api
+            .ident_api
             .delete_identities(Some(del_req))
             .await?
             .into_iter()
@@ -410,17 +358,51 @@ impl FRBackend for PVBackend {
             }
         }
     }
-    //delete an enrollment for a singel face
+
     async fn get_enrollment_metadata(&self) -> FRResult<Value> {
-        todo!()
+        let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+            r#"
+            select
+                (select count(*)::bigint from eyefr.profiles) as profiles_total,
+                (select count(*)::bigint from eyefr.profiles where fr_id is not null and fr_id <> '') as profiles_with_fr_id,
+                (select count(*)::bigint from eyefr.images) as images_total,
+                (select count(*)::bigint from eyefr.registration_errors) as registration_errors_total,
+                (select count(*)::bigint from logs.enrollment) as enrollment_logs_total
+            "#,
+        )
+        .fetch_one(&self.db)
+        .await?;
+
+        Ok(json!({
+            "profiles_total": row.0,
+            "profiles_with_fr_id": row.1,
+            "images_total": row.2,
+            "registration_errors_total": row.3,
+            "enrollment_logs_total": row.4,
+        }))
     }
+
     async fn get_enrollment_roster(&self) -> FRResult<Value> {
-        todo!()
+        let rows = sqlx::query_as::<_, EnrollmentRosterRow>(
+            r#"
+            select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
+            from eyefr.profiles
+            order by last_name asc nulls last, first_name asc nulls last, ext_id asc
+            limit 1000
+            "#,
+        )
+        .fetch_all(&self.db)
+        .await?;
+
+        Ok(Value::Array(
+            rows.into_iter()
+                .map(Self::profile_to_enrollment_item)
+                .collect(),
+        ))
     }
 
     async fn reset_enrollments(&self) -> FRResult<Value> {
-        //passsing none means delete all.. which is weird.
-        let res = self.api.delete_identities(None).await?;
+        let res = self.ident_api.delete_identities(None).await?;
 
         info!("Enrollments deleted from pv: {}", res.len());
 
@@ -429,27 +411,12 @@ impl FRBackend for PVBackend {
         }))
     }
 
-    ///This returns attributes about a face in an image
-    ///this is different than an identity that a face represents which requires recognition
     async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value> {
-        let outputs = if spoof_check {
-            Some(vec![
-                "BOUNDING_BOX".to_string(),
-                "QUALITY".to_string(),
-                "LIVENESS".to_string(),
-                "LIVENESS_VALIDNESS".to_string(),
-            ])
+        let img_resp = if spoof_check {
+            self.proc_api.process_image_liveness(image).await?
         } else {
-            ProcessFullImageRequest::default().outputs
+            self.proc_api.process_image(image, None, true).await?
         };
-
-        let img_req = ProcessFullImageRequest {
-            image: general_purpose::STANDARD.encode(image),
-            outputs,
-            find_most_prominent_face: true,
-        };
-
-        let img_resp = self.api.process_image(img_req).await?;
 
         let faces = match img_resp.faces {
             Some(faces) => faces.into_iter().map(Face::from).collect(),
@@ -460,22 +427,13 @@ impl FRBackend for PVBackend {
     }
 
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
-        let img_req = ProcessFullImageRequest {
-            image: general_purpose::STANDARD.encode(image),
-            ..ProcessFullImageRequest::default()
-        };
-
-        let img_resp = self.api.process_image(img_req).await?;
+        let img_resp = self.proc_api.process_image(image, None, true).await?;
 
         let mut lookup_req = LookupRequest::from(img_resp);
+        lookup_req.limit = config.top_n;
 
-        lookup_req.limit = config.top_n; //5; //top 5 but this should be an option
+        let lookup_vec = self.ident_api.lookup(lookup_req).await?;
 
-        let lookup_vec = self.api.lookup(lookup_req).await?;
-
-        //TODO: account for min match
-
-        //nuthing, Lebowski. Nothing!
         if lookup_vec.is_empty() {
             info!("recognize found no matches");
             return Ok(vec![]);
@@ -494,26 +452,17 @@ impl FRBackend for PVBackend {
             return Ok(vec![]);
         }
 
-        let fr_idents = self
-            .to_fr_identities(&lookups, config.min_match, true)
-            .await?;
-
-        Ok(fr_idents)
+        Ok(self.to_fr_identities(&lookups, config.min_match))
     }
 
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value> {
-        let img_req = ProcessFullImageRequest {
-            image: general_purpose::STANDARD.encode(image),
-            ..ProcessFullImageRequest::default()
-        };
-        let img_res = self.api.process_image(img_req).await?;
+        let img_res = self.proc_api.process_image(image, None, true).await?;
 
         let mut af_req = AddFaceRequest::from(img_res);
         af_req.identity_id = fr_id.to_string();
         af_req.confidence_threshold = 0;
 
-        let face_resp = self.api.add_face(af_req).await?;
-
+        let face_resp = self.ident_api.add_face(af_req).await?;
         Ok(serde_json::to_value(face_resp)?)
     }
 
@@ -523,7 +472,7 @@ impl FRBackend for PVBackend {
             face_id: face_id.to_string(),
         };
 
-        let res = self.api.delete_face(&del_req).await?;
+        let res = self.ident_api.delete_face(&del_req).await?;
         Ok(serde_json::to_value(res)?)
     }
 
@@ -532,17 +481,29 @@ impl FRBackend for PVBackend {
             fr_id: fr_id.to_string(),
         };
 
-        let res = self.api.get_faces(req).await?;
+        let res = self.ident_api.get_faces(req).await?;
         Ok(serde_json::to_value(res)?)
     }
 
     async fn get_enrollments_by_last_name(&self, name: &str) -> FRResult<Vec<Value>> {
-        let res = self.get_details_from_name(name).await?;
+        let like_pattern = format!("{}%", name.trim());
+        let rows = sqlx::query_as::<_, EnrollmentRosterRow>(
+            r#"
+            select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
+            from eyefr.profiles
+            where last_name ilike $1
+            order by last_name asc, first_name asc, ext_id asc
+            limit 100
+            "#,
+        )
+        .bind(like_pattern)
+        .fetch_all(&self.db)
+        .await?;
 
-        Ok(res
+        Ok(rows
             .into_iter()
-            .map(serde_json::to_value)
-            .collect::<Result<Vec<_>, _>>()?)
+            .map(Self::profile_to_enrollment_item)
+            .collect())
     }
 
     async fn log_identity(
@@ -553,6 +514,5 @@ impl FRBackend for PVBackend {
     ) -> FRResult<()> {
         self.log_identification_db(fr_identity, extra, location)
             .await
-        //Ok(())
     }
 }

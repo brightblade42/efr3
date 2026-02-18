@@ -1,5 +1,4 @@
 pub mod paravision;
-pub mod paravision_grpc;
 mod pvtypes;
 use crate::{EnrollData, FRIdentity, FRResult};
 use bytes::Bytes;
