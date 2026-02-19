@@ -74,6 +74,7 @@ Note: this repo currently has little/no committed Rust test coverage, so you may
 - `fr-api` reads many env vars; important ones include:
   - Backend is Paravision-only (`FR_BACKEND` and `CV_URL` are removed)
   - `FRAPI_PORT`, `PV_IDENT_URL`, `PV_PROC_URL`
+  - gRPC endpoint mapping: `PV_IDENT_URL` -> identity service (default `:5656`), `PV_PROC_URL` -> processor service (default `:50051`)
   - `SAFR_DB_ADDR`, `SAFR_DB_PORT`
   - `MIN_MATCH`, `MIN_DUPE_MATCH`, `MIN_QUALITY`, `USE_TLS`, `CERT_DIR`
 - `libtpass` config requires env vars and will fail fast if missing:

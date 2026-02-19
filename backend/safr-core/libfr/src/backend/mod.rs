@@ -17,7 +17,7 @@ pub trait FRBackend: Send + Sync {
     async fn get_enrollment_metadata(&self) -> FRResult<Value>;
     async fn get_enrollment_roster(&self) -> FRResult<Value>; //get a list of all the enrollments, or a subset for paging
     async fn reset_enrollments(&self) -> FRResult<Value>; //delete the whole damn thing. away with you.
-    async fn detect_face(&self, image: Bytes, spoof_check: bool) -> FRResult<Value>;
+    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Value>;
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>>;
 
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value>;

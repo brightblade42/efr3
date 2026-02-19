@@ -896,17 +896,16 @@ impl TPassClient {
             self.conf.url, full_name, status_type
         );
         info!("{}", &endpoint);
-        //details
-        //println!("hello mcfly");
-        //let res: Result<Value, reqwest::Error> = self.client.get(endpoint).bearer_auth(tk).send().await?.json().await;
-        let res: Value = self
-            .client
-            .get(endpoint)
-            .bearer_auth(tk)
-            .send()
-            .await?
-            .json()
-            .await?;
+
+        let resp = self.client.get(endpoint).bearer_auth(tk).send().await?;
+
+        //NOTE: we should check among a known set of non 200 codes to determine what to return
+        if resp.status() == StatusCode::NO_CONTENT {
+            info!("search_by_name for: {}  returned no results", full_name);
+            return Ok(Vec::new()); //we return empty, No content isn't an error
+        }
+
+        let res: Value = resp.json().await?;
 
         let tpr: Result<Vec<Value>, serde_json::Error> = serde_json::from_value(res);
 

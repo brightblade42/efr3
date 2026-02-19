@@ -216,7 +216,7 @@ fn to_face(face: processor::Face) -> Face {
     let embedding = if face.embedding.is_empty() {
         None
     } else {
-        Some(face.embedding.into_iter().map(|item| item as f64).collect())
+        Some(face.embedding)
     };
 
     Face {

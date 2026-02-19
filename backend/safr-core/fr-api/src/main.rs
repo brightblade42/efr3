@@ -152,7 +152,7 @@ fn api_v2_routes() -> Router<AppState> {
         //NOTE: detect_spoof was replaced with validate-image
         .route(
             "/validate-image",
-            post(recognition_handlers::detect_spoof_image),
+            post(recognition_handlers::liveness_check),
         )
         //.route("/detect_embed", post(detect_image_embed)) //detect, bbox + embeddngs
         .route("/recognize", post(recognition_handlers::recognize))

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+FR_ID="${1:-}"
+require_arg "$FR_ID" "fr_id"
+
+PAYLOAD="$(printf '{"fr_id":"%s"}' "$FR_ID")"
+
+curl_json POST "/fr/v2/get-identity" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD"

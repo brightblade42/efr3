@@ -6,8 +6,8 @@ use crate::errors::PVApiError;
 use crate::types::{
     AddFaceRequest, AddFaceResponse, CreateIdentitiesRequest, CreateIdentitiesResponse,
     DeleteFaceRequest, DeleteFaceResponse, DeleteIdentitiesRequest, Embedding, Face, FaceInfo,
-    GetFacesRequest, GetFacesResponse, GetIdentitiesRequest, Identities, Identity,
-    IdentityConfidence, LookupIdentities, LookupIdentity, LookupRequest, LookupResponse,
+    GetFacesRequest, GetFacesResponse, GetIdentitiesRequest, Identities, Identity, IdentityMatch,
+    LookupIdentities, LookupIdentity, LookupRequest, LookupResponse,
 };
 
 type PVResult<T> = Result<T, PVApiError>;
@@ -68,7 +68,7 @@ impl PVIdentityGrpcApi {
         let grpc_req = identity::CreateIdentitiesRequest {
             group_ids: req.group_ids.unwrap_or_default(),
             embeddings: req.embeddings.into_iter().map(to_proto_embedding).collect(),
-            threshold: req.confidence,
+            threshold: req.threshold,
             model: String::new(),
             qualities: req.qualities,
             external_ids: req.external_ids.unwrap_or_default(),
@@ -89,9 +89,9 @@ impl PVIdentityGrpcApi {
 
     pub async fn delete_identities(
         &self,
-        fr_ids: Option<DeleteIdentitiesRequest>,
+        delete_req: Option<DeleteIdentitiesRequest>,
     ) -> PVResultMany<String> {
-        let ids = match fr_ids {
+        let delete_targets: Vec<(Option<String>, Option<String>, String)> = match delete_req {
             None => {
                 let req = Some(GetIdentitiesRequest {
                     page_size: 100000,
@@ -103,33 +103,60 @@ impl PVIdentityGrpcApi {
                     .await?
                     .identities
                     .into_iter()
-                    .map(|i| i.id)
+                    .map(|item| {
+                        let id = item.id;
+                        (Some(id.clone()), None, id)
+                    })
                     .collect()
             }
-            Some(ids) => ids.fr_ids,
+            Some(req) => {
+                let external_ids = req.external_ids.unwrap_or_default();
+
+                if req.ids.is_empty() {
+                    external_ids
+                        .into_iter()
+                        .map(|external_id| {
+                            let label = format!("external_id={}", external_id);
+                            (None, Some(external_id), label)
+                        })
+                        .collect()
+                } else {
+                    req.ids
+                        .into_iter()
+                        .enumerate()
+                        .map(|(idx, id)| {
+                            let external_id = external_ids.get(idx).cloned();
+                            let label = external_id
+                                .as_ref()
+                                .map_or_else(|| id.clone(), |item| format!("{} ({})", id, item));
+                            (Some(id), external_id, label)
+                        })
+                        .collect()
+                }
+            }
         };
 
-        if ids.is_empty() {
+        if delete_targets.is_empty() {
             return Ok(vec![]);
         }
 
         let mut client = self.identity_client().await?;
-        let mut results: Vec<PVResult<String>> = Vec::with_capacity(ids.len());
+        let mut results: Vec<PVResult<String>> = Vec::with_capacity(delete_targets.len());
 
-        for id in ids {
+        for (id, external_id, label) in delete_targets {
             let grpc_req = identity::DeleteIdentitiesRequest {
-                ids: vec![id.clone()],
-                external_ids: vec![],
+                ids: id.into_iter().collect(),
+                external_ids: external_id.into_iter().collect(),
             };
 
             match client.delete_identities(Request::new(grpc_req)).await {
                 Ok(response) => {
                     if response.into_inner().rows_affected > 0 {
-                        results.push(Ok(id));
+                        results.push(Ok(label));
                     } else {
                         results.push(Err(PVApiError::with_code(
                             404,
-                            &format!("identity '{}' was not deleted", id),
+                            &format!("identity '{}' was not deleted", label),
                         )));
                     }
                 }
@@ -210,7 +237,7 @@ impl PVIdentityGrpcApi {
         let grpc_req = identity::AddFacesRequest {
             identity_id: req.identity_id,
             embeddings: req.embeddings.into_iter().map(to_proto_embedding).collect(),
-            threshold: req.confidence_threshold as f32,
+            threshold: req.threshold,
             model: String::new(),
             qualities: req.qualities,
             scaling_factor: DEFAULT_SCALING_FACTOR,
@@ -282,11 +309,7 @@ fn normalize_endpoint(endpoint: String) -> String {
 
 fn to_proto_embedding(embedding: Embedding) -> identity::Embedding {
     identity::Embedding {
-        embedding: embedding
-            .embedding
-            .into_iter()
-            .map(|value| value as f32)
-            .collect(),
+        embedding: embedding.embedding,
     }
 }
 
@@ -311,6 +334,7 @@ fn to_identity(identity: identity::Identity) -> Identity {
 fn to_face_info(face: identity::Face) -> FaceInfo {
     FaceInfo {
         id: face.id,
+        identity_id: face.identity_id,
         created_at: timestamp_to_rfc3339(face.created_at),
         model: face.model,
         quality: face.quality,
@@ -323,15 +347,15 @@ fn to_lookup_identities(response: identity::LookupResponse) -> LookupIdentities 
             .lookup_identities
             .into_iter()
             .map(|item| LookupIdentity {
-                identity_confidences: item
+                matches: item
                     .matches
                     .into_iter()
-                    .map(|item| IdentityConfidence {
+                    .map(|item| IdentityMatch {
                         identity: item
                             .identity
                             .map(to_identity)
                             .unwrap_or_else(empty_identity),
-                        confidence: item.score,
+                        score: item.score,
                     })
                     .collect(),
             })
