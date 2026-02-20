@@ -3,12 +3,7 @@ use tonic::Request;
 
 use crate::errors::PVApiError;
 use crate::grpc_utils::normalize_endpoint;
-use crate::identity_mapper::{
-    to_add_face_request, to_add_face_response, to_create_identities_request,
-    to_create_identities_response, to_delete_face_response, to_delete_faces_request,
-    to_delete_identities_request, to_get_faces_request, to_get_faces_response,
-    to_get_identities_request, to_identities, to_lookup_identities, to_lookup_request,
-};
+use crate::identity_mapper::{delete_identities_request, get_faces_request, lookup_request};
 use crate::types::{
     AddFaceInput, AddFaceResponse, CreateIdentitiesInput, CreateIdentitiesResponse,
     DeleteFaceInput, DeleteFaceResponse, DeleteIdentitiesInput, Embedding, Face, GetFacesInput,
@@ -45,14 +40,14 @@ impl PVIdentityGrpcApi {
             group_ids: None,
         });
 
-        let grpc_req = to_get_identities_request(req);
+        let grpc_req = req.into();
 
         let response = client
             .get_identities(Request::new(grpc_req))
             .await?
             .into_inner();
 
-        Ok(to_identities(response))
+        Ok(response.into())
     }
 
     pub async fn create_identities(
@@ -60,14 +55,14 @@ impl PVIdentityGrpcApi {
         req: CreateIdentitiesInput,
     ) -> PVResult<CreateIdentitiesResponse> {
         let mut client = self.identity_client().await?;
-        let grpc_req = to_create_identities_request(req);
+        let grpc_req = req.into();
 
         let response = client
             .create_identities(Request::new(grpc_req))
             .await?
             .into_inner();
 
-        Ok(to_create_identities_response(response))
+        Ok(response.into())
     }
 
     pub async fn delete_identities(
@@ -127,7 +122,7 @@ impl PVIdentityGrpcApi {
         let mut results: Vec<PVResult<String>> = Vec::with_capacity(delete_targets.len());
 
         for (id, external_id, label) in delete_targets {
-            let grpc_req = to_delete_identities_request(id, external_id);
+            let grpc_req = delete_identities_request(id, external_id);
 
             match client.delete_identities(Request::new(grpc_req)).await {
                 Ok(response) => {
@@ -149,10 +144,10 @@ impl PVIdentityGrpcApi {
 
     pub async fn lookup_single(&self, embedding: Embedding) -> PVResult<LookupIdentities> {
         let mut client = self.identity_client().await?;
-        let req = to_lookup_request(vec![embedding], 1);
+        let req = lookup_request(vec![embedding], 1);
 
         let response = client.lookup(Request::new(req)).await?.into_inner();
-        Ok(to_lookup_identities(response))
+        Ok(response.into())
     }
 
     pub async fn lookup<I: Into<LookupInput>>(&self, req: I) -> PVResultMany<LookupResponse> {
@@ -177,7 +172,7 @@ impl PVIdentityGrpcApi {
                 }
             };
 
-            let lookup_req = to_lookup_request(vec![Embedding { embedding }], limit);
+            let lookup_req = lookup_request(vec![Embedding { embedding }], limit);
 
             match client.lookup(Request::new(lookup_req)).await {
                 Ok(response) => {
@@ -186,7 +181,7 @@ impl PVIdentityGrpcApi {
                             embedding: None,
                             ..face
                         },
-                        identities: to_lookup_identities(response.into_inner()),
+                        identities: response.into_inner().into(),
                     }));
                 }
                 Err(err) => results.push(Err(PVApiError::from(err))),
@@ -198,31 +193,31 @@ impl PVIdentityGrpcApi {
 
     pub async fn add_face(&self, req: AddFaceInput) -> PVResult<AddFaceResponse> {
         let mut client = self.identity_client().await?;
-        let grpc_req = to_add_face_request(req);
+        let grpc_req = req.into();
 
         let response = client.add_faces(Request::new(grpc_req)).await?.into_inner();
-        Ok(to_add_face_response(response))
+        Ok(response.into())
     }
 
     pub async fn delete_face(&self, req: &DeleteFaceInput) -> PVResult<DeleteFaceResponse> {
         let mut client = self.identity_client().await?;
-        let grpc_req = to_delete_faces_request(req);
+        let grpc_req = req.into();
 
         let response = client
             .delete_faces(Request::new(grpc_req))
             .await?
             .into_inner();
 
-        Ok(to_delete_face_response(response))
+        Ok(response.into())
     }
 
     pub async fn get_faces(&self, req: GetFacesInput) -> PVResult<GetFacesResponse> {
         let mut client = self.identity_client().await?;
-        let grpc_req = to_get_faces_request(req, DEFAULT_PAGE_SIZE);
+        let grpc_req = get_faces_request(req, DEFAULT_PAGE_SIZE);
 
         let response = client.get_faces(Request::new(grpc_req)).await?.into_inner();
 
-        Ok(to_get_faces_response(response))
+        Ok(response.into())
     }
 
     async fn identity_client(

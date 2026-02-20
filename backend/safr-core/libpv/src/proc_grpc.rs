@@ -4,10 +4,7 @@ use tonic::Request;
 
 use crate::errors::PVApiError;
 use crate::grpc_utils::normalize_endpoint;
-use crate::proc_mapper::{
-    health_status_label, to_liveness_process_image_request, to_process_image_request,
-    to_process_image_response,
-};
+use crate::proc_mapper::{liveness_process_image_request, process_image_request};
 use crate::types::{HealthCheckResponse, ProcessImageResponse};
 
 type PVResult<T> = Result<T, PVApiError>;
@@ -39,26 +36,26 @@ impl PVProcGrpcApi {
         find_most_prominent_face: bool,
     ) -> PVResult<ProcessImageResponse> {
         let mut client = self.processor_client().await?;
-        let request = to_process_image_request(image, outputs, find_most_prominent_face)?;
+        let request = process_image_request(image, outputs, find_most_prominent_face)?;
 
         let response = client
             .process_full_image(Request::new(request))
             .await?
             .into_inner();
 
-        Ok(to_process_image_response(response))
+        Ok(response.into())
     }
 
     pub async fn process_image_liveness(&self, image: Bytes) -> PVResult<ProcessImageResponse> {
         let mut client = self.processor_client().await?;
-        let request = to_liveness_process_image_request(image)?;
+        let request = liveness_process_image_request(image)?;
 
         let response = client
             .process_full_image(Request::new(request))
             .await?
             .into_inner();
 
-        Ok(to_process_image_response(response))
+        Ok(response.into())
     }
 
     pub async fn health_check(&self) -> PVResult<HealthCheckResponse> {
@@ -68,9 +65,7 @@ impl PVProcGrpcApi {
         };
 
         let response = client.check(Request::new(request)).await?.into_inner();
-        Ok(HealthCheckResponse {
-            status: health_status_label(response.status),
-        })
+        Ok(response.into())
     }
 
     async fn processor_client(

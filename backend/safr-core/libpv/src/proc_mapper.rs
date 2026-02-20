@@ -2,14 +2,17 @@ use bytes::Bytes;
 
 use crate::errors::PVApiError;
 use crate::proc_grpc::{health, processor};
-use crate::types::{BoundingBox, Face, Liveness, Point, ProcessImageResponse, Validness};
+use crate::types::{
+    BoundingBox, Face, HealthCheckResponse, Landmarks, Liveness, Point, ProcessImageResponse,
+    Validness,
+};
 
 type PVResult<T> = Result<T, PVApiError>;
 
 const DEFAULT_OUTPUTS: [&str; 4] = ["BOUNDING_BOX", "EMBEDDING", "QUALITY", "MASK"];
 const LIVENESS_OUTPUTS: [&str; 4] = ["BOUNDING_BOX", "QUALITY", "LIVENESS", "LIVENESS_VALIDNESS"];
 
-pub(crate) fn to_process_image_request(
+pub(crate) fn process_image_request(
     image: Bytes,
     outputs: Option<Vec<String>>,
     find_most_prominent_face: bool,
@@ -26,7 +29,7 @@ pub(crate) fn to_process_image_request(
     })
 }
 
-pub(crate) fn to_liveness_process_image_request(
+pub(crate) fn liveness_process_image_request(
     image: Bytes,
 ) -> PVResult<processor::ProcessFullImageRequest> {
     Ok(processor::ProcessFullImageRequest {
@@ -46,28 +49,36 @@ pub(crate) fn to_liveness_process_image_request(
     })
 }
 
-pub(crate) fn to_process_image_response(
-    response: processor::ProcessFullImageResponse,
-) -> ProcessImageResponse {
-    let faces = if response.faces.is_empty() {
-        None
-    } else {
-        Some(response.faces.into_iter().map(to_face).collect())
-    };
-
-    ProcessImageResponse {
-        faces,
-        most_prominent_face_idx: Some(response.most_prominent_face_idx),
-    }
-}
-
-pub(crate) fn health_status_label(status: i32) -> String {
+fn health_status_label(status: i32) -> String {
     use health::health_check_response::ServingStatus;
 
     match ServingStatus::try_from(status).unwrap_or(ServingStatus::Unknown) {
         ServingStatus::Serving => "SERVING".to_string(),
         ServingStatus::NotServing => "NOT_SERVING".to_string(),
         ServingStatus::Unknown => "UNKNOWN".to_string(),
+    }
+}
+
+impl From<health::HealthCheckResponse> for HealthCheckResponse {
+    fn from(response: health::HealthCheckResponse) -> Self {
+        Self {
+            status: health_status_label(response.status),
+        }
+    }
+}
+
+impl From<processor::ProcessFullImageResponse> for ProcessImageResponse {
+    fn from(response: processor::ProcessFullImageResponse) -> Self {
+        let faces = if response.faces.is_empty() {
+            None
+        } else {
+            Some(response.faces.into_iter().map(Into::into).collect())
+        };
+
+        Self {
+            faces,
+            most_prominent_face_idx: Some(response.most_prominent_face_idx),
+        }
     }
 }
 
@@ -142,74 +153,86 @@ fn default_liveness_validness_parameters(
     params
 }
 
-fn to_face(face: processor::Face) -> Face {
-    let embedding = if face.embedding.is_empty() {
-        None
-    } else {
-        Some(face.embedding)
-    };
+impl From<processor::Face> for Face {
+    fn from(face: processor::Face) -> Self {
+        let embedding = if face.embedding.is_empty() {
+            None
+        } else {
+            Some(face.embedding)
+        };
 
-    Face {
-        bounding_box: face.bounding_box.map(to_bounding_box),
-        landmarks: face.landmarks.map(to_landmarks),
-        embedding,
-        ages: None,
-        genders: None,
-        aligned_face_image: None,
-        acceptability: Some(face.acceptability),
-        quality: Some(face.quality),
-        mask: Some(face.mask),
-        liveness_validness: face.liveness_validness.map(to_validness),
-        liveness: face.liveness.map(to_liveness),
+        Self {
+            bounding_box: face.bounding_box.map(Into::into),
+            landmarks: face.landmarks.map(Into::into),
+            embedding,
+            ages: None,
+            genders: None,
+            aligned_face_image: None,
+            acceptability: Some(face.acceptability),
+            quality: Some(face.quality),
+            mask: Some(face.mask),
+            liveness_validness: face.liveness_validness.map(Into::into),
+            liveness: face.liveness.map(Into::into),
+        }
     }
 }
 
-fn to_validness(validness: processor::Validness) -> Validness {
-    use processor::validness::Feedback;
+impl From<processor::Validness> for Validness {
+    fn from(validness: processor::Validness) -> Self {
+        use processor::validness::Feedback;
 
-    Validness {
-        is_valid: validness.is_valid,
-        feedback: validness
-            .feedback
-            .into_iter()
-            .map(|item| {
-                Feedback::try_from(item)
-                    .unwrap_or(Feedback::Unknown)
-                    .as_str_name()
-                    .to_string()
-            })
-            .collect(),
+        Self {
+            is_valid: validness.is_valid,
+            feedback: validness
+                .feedback
+                .into_iter()
+                .map(|item| {
+                    Feedback::try_from(item)
+                        .unwrap_or(Feedback::Unknown)
+                        .as_str_name()
+                        .to_string()
+                })
+                .collect(),
+        }
     }
 }
 
-fn to_liveness(liveness: processor::Liveness) -> Liveness {
-    Liveness {
-        liveness_probability: liveness.liveness_probability,
+impl From<processor::Liveness> for Liveness {
+    fn from(liveness: processor::Liveness) -> Self {
+        Self {
+            liveness_probability: liveness.liveness_probability,
+        }
     }
 }
 
-fn to_bounding_box(bounding_box: processor::BoundingBox) -> BoundingBox {
-    BoundingBox {
-        origin: to_point(bounding_box.origin),
-        width: bounding_box.width,
-        height: bounding_box.height,
+impl From<processor::BoundingBox> for BoundingBox {
+    fn from(bounding_box: processor::BoundingBox) -> Self {
+        Self {
+            origin: bounding_box.origin.into(),
+            width: bounding_box.width,
+            height: bounding_box.height,
+        }
     }
 }
 
-fn to_landmarks(landmarks: processor::Landmarks) -> crate::types::Landmarks {
-    crate::types::Landmarks {
-        eye_left: to_point(landmarks.left_eye),
-        eye_right: to_point(landmarks.right_eye),
-        nose: to_point(landmarks.nose),
-        mouth_left: to_point(landmarks.left_mouth),
-        mouth_right: to_point(landmarks.right_mouth),
+impl From<processor::Landmarks> for Landmarks {
+    fn from(landmarks: processor::Landmarks) -> Self {
+        Self {
+            eye_left: landmarks.left_eye.into(),
+            eye_right: landmarks.right_eye.into(),
+            nose: landmarks.nose.into(),
+            mouth_left: landmarks.left_mouth.into(),
+            mouth_right: landmarks.right_mouth.into(),
+        }
     }
 }
 
-fn to_point(point: Option<processor::Point>) -> Point {
-    let point = point.unwrap_or_default();
-    Point {
-        x: point.x,
-        y: point.y,
+impl From<Option<processor::Point>> for Point {
+    fn from(point: Option<processor::Point>) -> Self {
+        let point = point.unwrap_or_default();
+        Self {
+            x: point.x,
+            y: point.y,
+        }
     }
 }
