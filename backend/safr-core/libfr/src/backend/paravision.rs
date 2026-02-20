@@ -1,23 +1,23 @@
 use super::{
     pvtypes::{
-        add_face_input_from_processed, create_identities_input_from_processed,
-        lookup_input_from_processed,
+        add_faces_request_from_processed, create_identities_request_from_processed,
+        default_process_full_image_request, delete_faces_request, delete_identity_request,
+        get_faces_request, identity_created_at, list_identities_request,
+        liveness_process_full_image_request, lookup_candidates_from_processed,
+        lookup_request_for_embedding, possible_matches_from_lookup, to_add_face_result,
+        to_get_face_info_result,
     },
     FRBackend, FRResult, MatchConfig,
 };
 use crate::v2::domain::EnrollmentMetadataRecord;
 use crate::{
-    utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
-    EnrollmentDeleteResult, EnrollmentFaceInfo, EnrollmentRosterItem, FRError, FRIdentity, Face,
-    GetFaceInfoResult, PossibleMatch, ResetEnrollmentsBackendResult,
+    AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
+    EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult,
+    ResetEnrollmentsBackendResult,
 };
 use bytes::Bytes;
-use libpv::identity_grpc::PVIdentityGrpcApi;
-use libpv::proc_grpc::PVProcGrpcApi;
-use libpv::types::{
-    CreateIdentitiesInput, DeleteFaceInput, DeleteIdentitiesInput, Embedding, GetFacesInput,
-    LookupResponse,
-};
+use libpv::identity_grpc::{identity, PVIdentityGrpcApi};
+use libpv::proc_grpc::{processor, PVProcGrpcApi};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tracing::{error, info, warn};
@@ -53,7 +53,7 @@ impl PVBackend {
         &self,
         enroll_data: &EnrollData,
         config: MatchConfig,
-    ) -> FRResult<CreateIdentitiesInput> {
+    ) -> FRResult<identity::CreateIdentitiesRequest> {
         let image = enroll_data.image.clone().ok_or_else(|| {
             FRError::with_code(
                 1010,
@@ -61,31 +61,36 @@ impl PVBackend {
             )
         })?;
 
-        let img_resp = self.proc_api.process_image(image, None, true).await?;
+        let process_req = default_process_full_image_request(image, true);
+        let img_resp = self.proc_api.process_full_image(process_req).await?;
 
-        if img_resp.most_prominent_face_idx.is_none() {
+        if img_resp.most_prominent_face_idx < 0 {
             return Err(FRError::with_code(
                 1080,
                 "enrollment image must be set to use most prominent face with was not set. ",
             ));
         }
 
-        let p_idx = img_resp.most_prominent_face_idx.unwrap_or(0) as usize;
-        let faces = img_resp.faces.as_ref().ok_or_else(|| {
-            FRError::with_code(1081, "enrollment image processing returned no faces")
-        })?;
+        let p_idx = img_resp.most_prominent_face_idx as usize;
+        let faces = if img_resp.faces.is_empty() {
+            None
+        } else {
+            Some(&img_resp.faces)
+        }
+        .ok_or_else(|| FRError::with_code(1081, "enrollment image processing returned no faces"))?;
+
         let prom_face = faces.get(p_idx).ok_or_else(|| {
             FRError::with_code(1082, "most prominent face index is out of bounds")
         })?;
-        let emb = prom_face.embedding.as_ref().ok_or_else(|| {
-            FRError::with_code(1083, "most prominent face did not include an embedding")
-        })?;
 
-        let embedding = Embedding {
-            embedding: emb.to_vec(),
-        };
+        let emb = (!prom_face.embedding.is_empty())
+            .then_some(prom_face.embedding.clone())
+            .ok_or_else(|| {
+                FRError::with_code(1083, "most prominent face did not include an embedding")
+            })?;
 
-        let resp = self.ident_api.lookup_single(embedding).await?;
+        let lookup_req = lookup_request_for_embedding(emb, 1);
+        let resp = self.ident_api.lookup(lookup_req).await?;
         let ident = resp.lookup_identities.first();
 
         match ident {
@@ -96,9 +101,15 @@ impl PVBackend {
                     .find(|ic| ic.score >= config.min_dupe_match);
 
                 if let Some(confidence_match) = duplicate {
+                    let (fr_id, created_at) = confidence_match
+                        .identity
+                        .as_ref()
+                        .map(|identity| (identity.id.clone(), identity_created_at(identity)))
+                        .unwrap_or_else(|| (String::new(), String::new()));
+
                     let details = json!({
-                        "fr_id": confidence_match.identity.id,
-                        "created_at": confidence_match.identity.created_at,
+                        "fr_id": fr_id,
+                        "created_at": created_at,
                     });
 
                     Err(FRError::with_details(
@@ -107,15 +118,17 @@ impl PVBackend {
                         details,
                     ))
                 } else {
-                    Ok(create_identities_input_from_processed(
+                    Ok(create_identities_request_from_processed(
                         &img_resp,
                         config.min_dupe_match,
+                        None,
                     ))
                 }
             }
-            None => Ok(create_identities_input_from_processed(
+            None => Ok(create_identities_request_from_processed(
                 &img_resp,
                 config.min_dupe_match,
+                None,
             )),
         }
     }
@@ -226,41 +239,27 @@ impl PVBackend {
         Ok(())
     }
 
-    fn to_fr_identities(&self, lookups: &[LookupResponse], min_match: f32) -> Vec<FRIdentity> {
-        lookups
+    fn to_fr_identities(
+        &self,
+        faces: &[processor::Face],
+        lookups: &[identity::LookupIdentity],
+        min_match: f32,
+    ) -> Vec<FRIdentity> {
+        faces
             .iter()
-            .map(|item| {
-                let mut pms: Vec<PossibleMatch> = item
-                    .identities
-                    .lookup_identities
-                    .iter()
-                    .flat_map(|item| &item.matches)
-                    .map(|ic| {
-                        let n_conf = utils::roundf32(ic.score, 5);
-                        let mut pm = PossibleMatch::new(ic.identity.id.clone(), n_conf);
-                        pm.ext_id = ic.identity.external_id.clone().unwrap_or_default();
-                        pm
-                    })
-                    .collect();
-
-                if pms.len() > 1 {
-                    pms.sort_by(|a, b| {
-                        a.score
-                            .partial_cmp(&b.score)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-                    pms.reverse();
-                }
-
-                FRIdentity {
-                    face: Face::from(&item.face),
-                    possible_matches: pms,
-                }
+            .enumerate()
+            .map(|(idx, face)| FRIdentity {
+                face: Face::from(face),
+                possible_matches: lookups
+                    .get(idx)
+                    .map(possible_matches_from_lookup)
+                    .unwrap_or_default(),
             })
-            .filter(|fr| {
-                fr.possible_matches
+            .filter(|fr_identity| {
+                fr_identity
+                    .possible_matches
                     .first()
-                    .is_some_and(|pm| pm.score >= min_match)
+                    .is_some_and(|possible_match| possible_match.score >= min_match)
             })
             .collect()
     }
@@ -280,16 +279,6 @@ impl PVBackend {
             ext_id: row.ext_id.parse::<u64>().unwrap_or(0),
             ext_id_str: row.ext_id,
             details,
-        }
-    }
-
-    fn to_enrollment_face_info(face: libpv::types::FaceInfo) -> EnrollmentFaceInfo {
-        EnrollmentFaceInfo {
-            id: face.id,
-            identity_id: face.identity_id,
-            created_at: face.created_at,
-            model: face.model,
-            quality: face.quality,
         }
     }
 }
@@ -329,7 +318,7 @@ impl FRBackend for PVBackend {
             }
         };
 
-        id_req.external_ids = ext_id.clone().map(|id| vec![id]);
+        id_req.external_ids = ext_id.clone().into_iter().collect();
         let ident_res = self.ident_api.create_identities(id_req).await;
 
         let ident = match ident_res {
@@ -366,18 +355,27 @@ impl FRBackend for PVBackend {
     }
 
     async fn delete_enrollment(&self, face_id: &str) -> FRResult<EnrollmentDeleteResult> {
-        let del_req = DeleteIdentitiesInput::from(face_id);
+        let del_req = delete_identity_request(face_id);
 
-        let res = self
-            .ident_api
-            .delete_identities(Some(del_req))
-            .await?
-            .into_iter()
-            .next()
-            .ok_or_else(|| FRError::with_code(1090, "pv returned no results for delete."))?;
+        let res = self.ident_api.delete_identities(del_req).await;
 
         match res {
-            Ok(del_id) => Ok(EnrollmentDeleteResult { fr_id: del_id }),
+            Ok(delete_response) if delete_response.rows_affected > 0 => {
+                Ok(EnrollmentDeleteResult {
+                    fr_id: face_id.to_string(),
+                })
+            }
+            Ok(_) => {
+                let details = json!({ "fr_id": face_id });
+                let fr_err = FRError::with_details(
+                    1090,
+                    "pv returned no rows for delete request",
+                    details.clone(),
+                );
+                self.log_delete_err("delete_enrollment", &fr_err, Some(details))
+                    .await;
+                Err(fr_err)
+            }
             Err(e) => {
                 let details = json!({ "fr_id": face_id });
                 let fr_err = FRError::with_details(e.code, &e.message, details.clone());
@@ -430,9 +428,18 @@ impl FRBackend for PVBackend {
     }
 
     async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult> {
-        let res = self.ident_api.delete_identities(None).await?;
+        let list_req = list_identities_request(100000);
+        let identities = self.ident_api.get_identities(list_req).await?.identities;
 
-        info!("Enrollments deleted from pv: {}", res.len());
+        let deleted_count = identities.len();
+        for identity in identities {
+            let delete_req = delete_identity_request(&identity.id);
+            if let Err(err) = self.ident_api.delete_identities(delete_req).await {
+                warn!("reset_enrollments failed deleting {}: {}", identity.id, err);
+            }
+        }
+
+        info!("Enrollments deleted from pv: {}", deleted_count);
 
         Ok(ResetEnrollmentsBackendResult {
             msg: "All PV enrollments have been deleted. System reset.".to_string(),
@@ -440,89 +447,70 @@ impl FRBackend for PVBackend {
     }
 
     async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
-        let img_resp = if liveness_check {
-            self.proc_api.process_image_liveness(image).await?
+        let process_req = if liveness_check {
+            liveness_process_full_image_request(image)
         } else {
-            self.proc_api.process_image(image, None, true).await?
+            default_process_full_image_request(image, true)
         };
 
-        let faces = match img_resp.faces {
-            Some(faces) => faces.into_iter().map(Face::from).collect(),
-            None => vec![],
-        };
+        let img_resp = self.proc_api.process_full_image(process_req).await?;
+        let faces = img_resp.faces.into_iter().map(Face::from).collect();
 
         Ok(faces)
     }
+
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
-        let img_resp = self.proc_api.process_image(image, None, true).await?;
+        let process_req = default_process_full_image_request(image, true);
+        let img_resp = self.proc_api.process_full_image(process_req).await?;
 
-        let lookup_req = lookup_input_from_processed(img_resp, config.top_n);
-
-        let lookup_vec = self.ident_api.lookup(lookup_req).await?;
-
-        if lookup_vec.is_empty() {
+        let Some((faces, lookup_req)) = lookup_candidates_from_processed(img_resp, config.top_n)
+        else {
             info!("recognize found no matches");
             return Ok(vec![]);
-        }
+        };
 
-        let mut lookups: Vec<LookupResponse> = Vec::with_capacity(lookup_vec.len());
-        for lookup in lookup_vec {
-            match lookup {
-                Ok(item) => lookups.push(item),
-                Err(err) => warn!("recognize lookup item failed: {}", err),
-            }
-        }
+        let lookup_response = self.ident_api.lookup(lookup_req).await?;
+        let lookup_identities = lookup_response.lookup_identities;
 
-        if lookups.is_empty() {
-            warn!("recognize: all lookup requests failed");
+        if lookup_identities.is_empty() {
+            info!("recognize found no lookup identity sets");
             return Ok(vec![]);
         }
 
-        Ok(self.to_fr_identities(&lookups, config.min_match))
+        if lookup_identities.len() != faces.len() {
+            warn!(
+                "recognize face/lookup count mismatch: faces={}, lookup_sets={}",
+                faces.len(),
+                lookup_identities.len()
+            );
+        }
+
+        Ok(self.to_fr_identities(&faces, &lookup_identities, config.min_match))
     }
 
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<AddFaceResult> {
-        let img_res = self.proc_api.process_image(image, None, true).await?;
+        let process_req = default_process_full_image_request(image, true);
+        let processed = self.proc_api.process_full_image(process_req).await?;
 
-        let af_req = add_face_input_from_processed(img_res, fr_id.to_string(), 0.0);
+        let add_req = add_faces_request_from_processed(processed, fr_id.to_string(), 0.0);
+        let face_resp = self.ident_api.add_faces(add_req).await?;
 
-        let face_resp = self.ident_api.add_face(af_req).await?;
-        Ok(AddFaceResult {
-            faces: face_resp
-                .faces
-                .into_iter()
-                .map(Self::to_enrollment_face_info)
-                .collect(),
-        })
+        Ok(to_add_face_result(face_resp))
     }
 
     async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
-        let del_req = DeleteFaceInput {
-            fr_id: fr_id.to_string(),
-            face_id: face_id.to_string(),
-        };
+        let delete_req = delete_faces_request(fr_id, face_id);
+        let res = self.ident_api.delete_faces(delete_req).await?;
 
-        let res = self.ident_api.delete_face(&del_req).await?;
         Ok(DeleteFaceResult {
             rows_affected: res.rows_affected,
         })
     }
 
     async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
-        let req = GetFacesInput {
-            fr_id: fr_id.to_string(),
-        };
-
+        let req = get_faces_request(fr_id);
         let res = self.ident_api.get_faces(req).await?;
-        Ok(GetFaceInfoResult {
-            faces: res
-                .faces
-                .into_iter()
-                .map(Self::to_enrollment_face_info)
-                .collect(),
-            next_page_token: res.next_page_token,
-            total_size: res.total_size,
-        })
+        Ok(to_get_face_info_result(res))
     }
 
     async fn get_enrollments_by_last_name(

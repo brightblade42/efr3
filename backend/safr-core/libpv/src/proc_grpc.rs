@@ -1,11 +1,8 @@
-use bytes::Bytes;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 
 use crate::errors::PVApiError;
 use crate::grpc_utils::normalize_endpoint;
-use crate::proc_mapper::{liveness_process_image_request, process_image_request};
-use crate::types::{HealthCheckResponse, ProcessImageResponse};
 
 type PVResult<T> = Result<T, PVApiError>;
 
@@ -29,43 +26,23 @@ impl PVProcGrpcApi {
         }
     }
 
-    pub async fn process_image(
+    pub async fn process_full_image(
         &self,
-        image: Bytes,
-        outputs: Option<Vec<String>>,
-        find_most_prominent_face: bool,
-    ) -> PVResult<ProcessImageResponse> {
+        req: processor::ProcessFullImageRequest,
+    ) -> PVResult<processor::ProcessFullImageResponse> {
         let mut client = self.processor_client().await?;
-        let request = process_image_request(image, outputs, find_most_prominent_face)?;
-
-        let response = client
-            .process_full_image(Request::new(request))
+        Ok(client
+            .process_full_image(Request::new(req))
             .await?
-            .into_inner();
-
-        Ok(response.into())
+            .into_inner())
     }
 
-    pub async fn process_image_liveness(&self, image: Bytes) -> PVResult<ProcessImageResponse> {
-        let mut client = self.processor_client().await?;
-        let request = liveness_process_image_request(image)?;
-
-        let response = client
-            .process_full_image(Request::new(request))
-            .await?
-            .into_inner();
-
-        Ok(response.into())
-    }
-
-    pub async fn health_check(&self) -> PVResult<HealthCheckResponse> {
+    pub async fn health_check(&self) -> PVResult<health::HealthCheckResponse> {
         let mut client = self.health_client().await?;
         let request = health::HealthCheckRequest {
             service: String::new(),
         };
-
-        let response = client.check(Request::new(request)).await?.into_inner();
-        Ok(response.into())
+        Ok(client.check(Request::new(request)).await?.into_inner())
     }
 
     async fn processor_client(
