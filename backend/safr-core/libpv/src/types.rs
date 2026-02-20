@@ -120,89 +120,12 @@ pub struct DeleteFaceResponse {
 
 //---- end of Secondary Face types
 
-//TODO: The body of this is copied in a couple of places.
-impl From<ProcessImageResponse> for AddFaceInput {
-    fn from(resp: ProcessImageResponse) -> Self {
-        let Some(faces) = resp.faces else {
-            return Self {
-                //does this even make sense?
-                identity_id: "".to_string(), //we'd need to update this at the return site
-                embeddings: vec![],
-                threshold: 0.0,
-                qualities: vec![],
-            };
-        };
-
-        let mut embeddings = vec![];
-        //let mut faces = vec![];
-        let mut qualities = vec![];
-        for f in faces {
-            if let Some(embedding) = f.embedding {
-                //faces.push(f.clone());
-                embeddings.push(Embedding { embedding });
-
-                if let Some(quality) = f.quality {
-                    qualities.push(quality);
-                }
-            }
-        }
-        Self {
-            identity_id: "".to_string(), //we'd need to update this at the return site
-            embeddings,
-            threshold: 0.0,
-            qualities,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LookupInput {
     pub embeddings: Vec<Embedding>,
     #[serde(skip_serializing)]
     pub faces: Option<Vec<Face>>,
     pub limit: i32,
-}
-
-///Convert the result of a process_full_image api call into a LookupInput
-///
-/// This is a very common transformation. Detection, extraction of faces from an image followed by
-/// identifying those extracted faces from their generated embeddings
-/// ProcessFullImage detects faces and returns their embeddings and Lookup api
-/// returns possible FR matches from those generated embeddings
-impl From<ProcessImageResponse> for LookupInput {
-    fn from(resp: ProcessImageResponse) -> Self {
-        Self::from(&resp)
-    }
-}
-
-impl From<&ProcessImageResponse> for LookupInput {
-    fn from(resp: &ProcessImageResponse) -> Self {
-        let Some(face_list) = resp.faces.as_ref() else {
-            return Self {
-                //does this even make sense?
-                limit: 1,
-                faces: None,
-                embeddings: vec![],
-            };
-        };
-
-        let mut embeddings = vec![];
-        let mut faces = vec![];
-
-        for f in face_list {
-            if let Some(embedding) = f.embedding.as_ref() {
-                faces.push(f.clone());
-                embeddings.push(Embedding {
-                    embedding: embedding.clone(),
-                });
-            }
-        }
-        Self {
-            limit: 1,
-            faces: Some(faces),
-            embeddings,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -277,57 +200,6 @@ pub struct CreateIdentitiesInput {
     pub group_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_ids: Option<Vec<String>>,
-}
-
-impl From<ProcessImageResponse> for CreateIdentitiesInput {
-    fn from(pr: ProcessImageResponse) -> Self {
-        Self::from(&pr)
-    }
-}
-
-impl From<&ProcessImageResponse> for CreateIdentitiesInput {
-    fn from(pr: &ProcessImageResponse) -> Self {
-        //we are only ever interested in a single face per image for enrollment.
-        //The detector may find more, so we use most_prominent_face.
-        let face_idx = match pr.most_prominent_face_idx {
-            Some(-1) => 0_usize,
-            Some(i) => i as usize,
-            None => 0_usize,
-        };
-
-        let prom_face = pr
-            .faces
-            .as_ref()
-            .and_then(|faces| faces.get(face_idx).cloned())
-            .unwrap_or(Face {
-                bounding_box: None,
-                landmarks: None,
-                embedding: None,
-                ages: None,
-                genders: None,
-                aligned_face_image: None,
-                acceptability: None,
-                quality: None,
-                mask: None,
-                liveness_validness: None,
-                liveness: None,
-            });
-        //this is all we ever care about in this context
-        //let prom_face = proc_img.faces.as_ref().unwrap().remove(face_idx);
-        let qualities = vec![prom_face.quality.unwrap_or(0_f32)];
-        let embeddings = vec![match prom_face.embedding {
-            Some(emb) => Embedding { embedding: emb },
-            None => Embedding { embedding: vec![] }, //this should repr a failure
-        }];
-
-        CreateIdentitiesInput {
-            group_ids: None,
-            qualities,
-            embeddings,
-            threshold: 0.20_f32,
-            external_ids: None, //ccodes might actually be useful
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

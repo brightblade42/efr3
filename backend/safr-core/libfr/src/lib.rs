@@ -3,7 +3,6 @@ pub mod remote;
 pub mod v2;
 use bytes::Bytes;
 use libpv::errors::PVApiError;
-use libpv::types::{AddFaceResponse, DeleteFaceResponse, GetFacesResponse};
 use libtpass::errors::TPassError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -170,10 +169,31 @@ pub struct ResetEnrollmentsResult {
     pub local_reset: v2::domain::EnrollmentResetRecord,
 }
 
-pub type AddFaceResult = AddFaceResponse;
-pub type DeleteFaceResult = DeleteFaceResponse;
-pub type GetFaceInfoResult = GetFacesResponse;
-pub type EnrollmentFaceInfo = libpv::types::FaceInfo;
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentFaceInfo {
+    pub id: String,
+    pub identity_id: String,
+    pub created_at: String,
+    pub model: String,
+    pub quality: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AddFaceResult {
+    pub faces: Vec<EnrollmentFaceInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeleteFaceResult {
+    pub rows_affected: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GetFaceInfoResult {
+    pub faces: Vec<EnrollmentFaceInfo>,
+    pub next_page_token: String,
+    pub total_size: i32,
+}
 
 //recognition types
 

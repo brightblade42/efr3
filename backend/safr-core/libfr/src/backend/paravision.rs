@@ -1,16 +1,22 @@
-use super::{FRBackend, FRResult, MatchConfig};
+use super::{
+    pvtypes::{
+        add_face_input_from_processed, create_identities_input_from_processed,
+        lookup_input_from_processed,
+    },
+    FRBackend, FRResult, MatchConfig,
+};
 use crate::v2::domain::EnrollmentMetadataRecord;
 use crate::{
     utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
-    EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult,
-    PossibleMatch, ResetEnrollmentsBackendResult,
+    EnrollmentDeleteResult, EnrollmentFaceInfo, EnrollmentRosterItem, FRError, FRIdentity, Face,
+    GetFaceInfoResult, PossibleMatch, ResetEnrollmentsBackendResult,
 };
 use bytes::Bytes;
 use libpv::identity_grpc::PVIdentityGrpcApi;
 use libpv::proc_grpc::PVProcGrpcApi;
 use libpv::types::{
-    AddFaceInput, CreateIdentitiesInput, DeleteFaceInput, DeleteIdentitiesInput, Embedding,
-    GetFacesInput, LookupInput, LookupResponse,
+    CreateIdentitiesInput, DeleteFaceInput, DeleteIdentitiesInput, Embedding, GetFacesInput,
+    LookupResponse,
 };
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -101,10 +107,16 @@ impl PVBackend {
                         details,
                     ))
                 } else {
-                    Ok(img_resp.into())
+                    Ok(create_identities_input_from_processed(
+                        &img_resp,
+                        config.min_dupe_match,
+                    ))
                 }
             }
-            None => Ok(img_resp.into()),
+            None => Ok(create_identities_input_from_processed(
+                &img_resp,
+                config.min_dupe_match,
+            )),
         }
     }
 
@@ -270,6 +282,16 @@ impl PVBackend {
             details,
         }
     }
+
+    fn to_enrollment_face_info(face: libpv::types::FaceInfo) -> EnrollmentFaceInfo {
+        EnrollmentFaceInfo {
+            id: face.id,
+            identity_id: face.identity_id,
+            created_at: face.created_at,
+            model: face.model,
+            quality: face.quality,
+        }
+    }
 }
 
 impl FRBackend for PVBackend {
@@ -307,7 +329,6 @@ impl FRBackend for PVBackend {
             }
         };
 
-        id_req.threshold = config.min_dupe_match;
         id_req.external_ids = ext_id.clone().map(|id| vec![id]);
         let ident_res = self.ident_api.create_identities(id_req).await;
 
@@ -435,8 +456,7 @@ impl FRBackend for PVBackend {
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
         let img_resp = self.proc_api.process_image(image, None, true).await?;
 
-        let mut lookup_req = LookupInput::from(img_resp);
-        lookup_req.limit = config.top_n;
+        let lookup_req = lookup_input_from_processed(img_resp, config.top_n);
 
         let lookup_vec = self.ident_api.lookup(lookup_req).await?;
 
@@ -464,12 +484,16 @@ impl FRBackend for PVBackend {
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<AddFaceResult> {
         let img_res = self.proc_api.process_image(image, None, true).await?;
 
-        let mut af_req = AddFaceInput::from(img_res);
-        af_req.identity_id = fr_id.to_string();
-        af_req.threshold = 0.0;
+        let af_req = add_face_input_from_processed(img_res, fr_id.to_string(), 0.0);
 
         let face_resp = self.ident_api.add_face(af_req).await?;
-        Ok(face_resp)
+        Ok(AddFaceResult {
+            faces: face_resp
+                .faces
+                .into_iter()
+                .map(Self::to_enrollment_face_info)
+                .collect(),
+        })
     }
 
     async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
@@ -479,7 +503,9 @@ impl FRBackend for PVBackend {
         };
 
         let res = self.ident_api.delete_face(&del_req).await?;
-        Ok(res)
+        Ok(DeleteFaceResult {
+            rows_affected: res.rows_affected,
+        })
     }
 
     async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
@@ -488,7 +514,15 @@ impl FRBackend for PVBackend {
         };
 
         let res = self.ident_api.get_faces(req).await?;
-        Ok(res)
+        Ok(GetFaceInfoResult {
+            faces: res
+                .faces
+                .into_iter()
+                .map(Self::to_enrollment_face_info)
+                .collect(),
+            next_page_token: res.next_page_token,
+            total_size: res.total_size,
+        })
     }
 
     async fn get_enrollments_by_last_name(

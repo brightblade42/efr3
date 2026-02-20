@@ -1,45 +1,99 @@
-// ------- This file is for implementing FROM traits
-// From Traits allow us do type conversions and keep the main code clean.
-
-use crate::EnrollData;
 use crate::Face;
-use base64::{engine::general_purpose, Engine as _};
+use libpv::types::{
+    AddFaceInput, CreateIdentitiesInput, Embedding, LookupInput, ProcessImageResponse,
+};
 
-use libpv::types::ProcessFullImageRequest;
+pub(crate) fn create_identities_input_from_processed(
+    processed: &ProcessImageResponse,
+    threshold: f32,
+) -> CreateIdentitiesInput {
+    let face_idx = match processed.most_prominent_face_idx {
+        Some(-1) => 0_usize,
+        Some(index) => index as usize,
+        None => 0_usize,
+    };
 
-//cool
-impl From<EnrollData> for ProcessFullImageRequest {
-    fn from(data: EnrollData) -> Self {
-        ProcessFullImageRequest {
-            image: data
-                .image
-                .map(|bytes| general_purpose::STANDARD.encode(bytes))
-                .unwrap_or_default(),
-            outputs: Some(vec![
-                "EMBEDDING".to_string(),
-                "QUALITY".to_string(),
-                "MASK".to_string(),
-            ]),
-            find_most_prominent_face: true,
-        }
+    let (embedding, quality) = processed
+        .faces
+        .as_ref()
+        .and_then(|faces| faces.get(face_idx))
+        .map(|face| {
+            (
+                face.embedding.clone().unwrap_or_default(),
+                face.quality.unwrap_or(0.0),
+            )
+        })
+        .unwrap_or_else(|| (vec![], 0.0));
+
+    CreateIdentitiesInput {
+        embeddings: vec![Embedding { embedding }],
+        threshold,
+        qualities: vec![quality],
+        group_ids: None,
+        external_ids: None,
     }
 }
 
-impl From<&EnrollData> for ProcessFullImageRequest {
-    fn from(data: &EnrollData) -> Self {
-        ProcessFullImageRequest {
-            image: data
-                .image
-                .as_ref()
-                .map(|bytes| general_purpose::STANDARD.encode(bytes))
-                .unwrap_or_default(),
-            outputs: Some(vec![
-                "EMBEDDING".to_string(),
-                "QUALITY".to_string(),
-                "MASK".to_string(),
-            ]),
-            find_most_prominent_face: true,
+pub(crate) fn lookup_input_from_processed(
+    processed: ProcessImageResponse,
+    limit: i32,
+) -> LookupInput {
+    let Some(face_list) = processed.faces else {
+        return LookupInput {
+            embeddings: vec![],
+            faces: None,
+            limit,
+        };
+    };
+
+    let mut embeddings = Vec::new();
+    let mut faces = Vec::new();
+
+    for face in face_list {
+        if let Some(embedding) = face.embedding.clone() {
+            embeddings.push(Embedding { embedding });
+            faces.push(face);
         }
+    }
+
+    LookupInput {
+        embeddings,
+        faces: Some(faces),
+        limit,
+    }
+}
+
+pub(crate) fn add_face_input_from_processed(
+    processed: ProcessImageResponse,
+    identity_id: String,
+    threshold: f32,
+) -> AddFaceInput {
+    let Some(faces) = processed.faces else {
+        return AddFaceInput {
+            identity_id,
+            embeddings: vec![],
+            threshold,
+            qualities: vec![],
+        };
+    };
+
+    let mut embeddings = Vec::new();
+    let mut qualities = Vec::new();
+
+    for face in faces {
+        if let Some(embedding) = face.embedding {
+            embeddings.push(Embedding { embedding });
+            if let Some(quality) = face.quality {
+                qualities.push(quality);
+            }
+        }
+    }
+
+    AddFaceInput {
+        identity_id,
+        embeddings,
+        threshold,
+        qualities,
     }
 }
 
