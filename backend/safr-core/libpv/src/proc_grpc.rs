@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use tokio::sync::OnceCell;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 
@@ -17,12 +20,14 @@ pub mod processor {
 #[derive(Clone)]
 pub struct PVProcGrpcApi {
     endpoint: String,
+    channel: Arc<OnceCell<Channel>>,
 }
 
 impl PVProcGrpcApi {
     pub fn new(endpoint: String) -> Self {
         Self {
             endpoint: normalize_endpoint(endpoint),
+            channel: Arc::new(OnceCell::new()),
         }
     }
 
@@ -48,17 +53,27 @@ impl PVProcGrpcApi {
     async fn processor_client(
         &self,
     ) -> PVResult<processor::processor_service_client::ProcessorServiceClient<Channel>> {
-        let endpoint = Endpoint::from_shared(self.endpoint.clone()).map_err(|e| {
-            PVApiError::with_code(500, &format!("invalid processor endpoint: {}", e))
-        })?;
-        let channel = endpoint.connect().await?;
-        Ok(processor::processor_service_client::ProcessorServiceClient::new(channel))
+        Ok(processor::processor_service_client::ProcessorServiceClient::new(self.channel().await?))
     }
 
     async fn health_client(&self) -> PVResult<health::health_client::HealthClient<Channel>> {
-        let endpoint = Endpoint::from_shared(self.endpoint.clone())
-            .map_err(|e| PVApiError::with_code(500, &format!("invalid health endpoint: {}", e)))?;
-        let channel = endpoint.connect().await?;
-        Ok(health::health_client::HealthClient::new(channel))
+        Ok(health::health_client::HealthClient::new(
+            self.channel().await?,
+        ))
+    }
+
+    async fn channel(&self) -> PVResult<Channel> {
+        let endpoint = self.endpoint.clone();
+        let channel = self
+            .channel
+            .get_or_try_init(|| async move {
+                let endpoint = Endpoint::from_shared(endpoint).map_err(|e| {
+                    PVApiError::with_code(500, &format!("invalid processor endpoint: {}", e))
+                })?;
+                Ok::<Channel, PVApiError>(endpoint.connect_lazy())
+            })
+            .await?;
+
+        Ok(channel.clone())
     }
 }

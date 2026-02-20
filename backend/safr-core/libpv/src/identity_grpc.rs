@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use tokio::sync::OnceCell;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 
@@ -13,12 +16,14 @@ pub mod identity {
 #[derive(Clone)]
 pub struct PVIdentityGrpcApi {
     endpoint: String,
+    channel: Arc<OnceCell<Channel>>,
 }
 
 impl PVIdentityGrpcApi {
     pub fn new(endpoint: String) -> Self {
         Self {
             endpoint: normalize_endpoint(endpoint),
+            channel: Arc::new(OnceCell::new()),
         }
     }
 
@@ -84,10 +89,21 @@ impl PVIdentityGrpcApi {
     async fn identity_client(
         &self,
     ) -> PVResult<identity::identity_service_client::IdentityServiceClient<Channel>> {
-        let endpoint = Endpoint::from_shared(self.endpoint.clone()).map_err(|e| {
-            PVApiError::with_code(500, &format!("invalid identity endpoint: {}", e))
-        })?;
-        let channel = endpoint.connect().await?;
-        Ok(identity::identity_service_client::IdentityServiceClient::new(channel))
+        Ok(identity::identity_service_client::IdentityServiceClient::new(self.channel().await?))
+    }
+
+    async fn channel(&self) -> PVResult<Channel> {
+        let endpoint = self.endpoint.clone();
+        let channel = self
+            .channel
+            .get_or_try_init(|| async move {
+                let endpoint = Endpoint::from_shared(endpoint).map_err(|e| {
+                    PVApiError::with_code(500, &format!("invalid identity endpoint: {}", e))
+                })?;
+                Ok::<Channel, PVApiError>(endpoint.connect_lazy())
+            })
+            .await?;
+
+        Ok(channel.clone())
     }
 }
