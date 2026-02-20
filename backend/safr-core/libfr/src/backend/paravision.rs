@@ -9,7 +9,7 @@ use super::{
     },
     FRBackend, FRResult, MatchConfig,
 };
-use crate::v2::domain::EnrollmentMetadataRecord;
+use crate::repo::EnrollmentMetadataRecord;
 use crate::{
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
     EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult,

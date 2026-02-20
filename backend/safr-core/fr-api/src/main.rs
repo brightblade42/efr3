@@ -29,7 +29,7 @@ use crate::errors::AppError;
 use crate::fr_service::FRService;
 use crate::runtime::{FREngine, RemoteRuntime};
 use libfr::backend::MatchConfig;
-use libfr::v2::adapters::fr_repo_sqlx::SqlxFrRepository;
+use libfr::repo::SqlxFrRepository;
 
 use libtpass::api::TPassClient;
 

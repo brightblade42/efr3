@@ -9,6 +9,8 @@ use crate::grpc_utils::normalize_endpoint;
 
 type PVResult<T> = Result<T, PVApiError>;
 
+//NOTE: keeps generated grpc code out of our project but gives us
+//an easy way to use it.
 pub mod health {
     tonic::include_proto!("grpc.health.v1");
 }

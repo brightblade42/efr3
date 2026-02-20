@@ -6,7 +6,7 @@ use libfr::EnrollmentFaceInfo;
 use libfr::{
     backend::{paravision::PVBackend, FRBackend, MatchConfig},
     remote::{RegistrationPair, Remote, SearchManyResult, SearchResult},
-    v2::domain::EnrollmentMetadataRecord,
+    repo::EnrollmentMetadataRecord,
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentCreateResult, EnrollmentDeleteResult,
     EnrollmentRosterItem, FRIdentity, FRResult, Face, GetFaceInfoResult,
     ResetEnrollmentsBackendResult, SearchBy,

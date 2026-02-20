@@ -1,6 +1,6 @@
 pub mod backend;
 pub mod remote;
-pub mod v2;
+pub mod repo;
 use bytes::Bytes;
 use libpv::errors::PVApiError;
 use libtpass::errors::TPassError;
@@ -166,7 +166,7 @@ pub struct ResetEnrollmentsBackendResult {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResetEnrollmentsResult {
     pub msg: String,
-    pub local_reset: v2::domain::EnrollmentResetRecord,
+    pub local_reset: repo::EnrollmentResetRecord,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

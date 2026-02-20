@@ -3,7 +3,7 @@ use axum::{
     Json,
 };
 use libfr::backend::MatchConfig;
-use libfr::v2::domain::{EnrollmentMetadataRecord, ExternalId};
+use libfr::repo::{EnrollmentMetadataRecord, ExternalId};
 use libfr::{
     AddFaceResult, EnrollmentCreateResult, EnrollmentDeleteResult, EnrollmentRosterItem,
     GetFaceInfoResult, ResetEnrollmentsResult,

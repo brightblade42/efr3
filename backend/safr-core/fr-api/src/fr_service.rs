@@ -5,12 +5,9 @@ use bytes::Bytes;
 use libfr::{
     backend::{FRBackend, MatchConfig},
     remote::{RegistrationPair, Remote},
-    v2::{
-        adapters::fr_repo_sqlx::SqlxFrRepository,
-        domain::{
-            EnrollmentMetadataRecord, ExternalId, ImageRecord, ProfileRecord,
-            RegistrationErrorRecord,
-        },
+    repo::{
+        EnrollmentMetadataRecord, ExternalId, ImageRecord, ProfileRecord, RegistrationErrorRecord,
+        SqlxFrRepository,
     },
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
     EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face,

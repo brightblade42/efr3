@@ -1,6 +1,6 @@
 pub mod paravision;
 mod pvtypes;
-use crate::v2::domain::EnrollmentMetadataRecord;
+use crate::repo::EnrollmentMetadataRecord;
 use crate::{
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentCreateResult, EnrollmentDeleteResult,
     EnrollmentRosterItem, FRIdentity, FRResult, Face, GetFaceInfoResult,

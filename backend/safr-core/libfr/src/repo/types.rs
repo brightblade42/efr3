@@ -2,17 +2,17 @@ use crate::BoundingBox;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{V2Error, V2Result};
+use super::{RepoError, RepoResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExternalId(String);
 
 impl ExternalId {
-    pub fn new(value: impl Into<String>) -> V2Result<Self> {
+    pub fn new(value: impl Into<String>) -> RepoResult<Self> {
         let value = value.into();
         if value.trim().is_empty() {
-            return Err(V2Error::message("external id cannot be empty"));
+            return Err(RepoError::message("external id cannot be empty"));
         }
         Ok(Self(value))
     }
@@ -27,7 +27,7 @@ impl ExternalId {
 }
 
 impl TryFrom<String> for ExternalId {
-    type Error = V2Error;
+    type Error = RepoError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -35,7 +35,7 @@ impl TryFrom<String> for ExternalId {
 }
 
 impl TryFrom<&str> for ExternalId {
-    type Error = V2Error;
+    type Error = RepoError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Self::new(value.to_string())
