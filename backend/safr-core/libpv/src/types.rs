@@ -54,13 +54,7 @@ impl Default for ProcessFullImageRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GetIdentityRequest {
-    pub fr_id: String,
-}
-
-//NOTE: hoisted to cv-api
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GetFacesRequest {
+pub struct GetFacesInput {
     pub fr_id: String,
 }
 
@@ -73,7 +67,7 @@ pub struct GetFacesResponse {
 
 //TODO: I think this is supposed to be Response not request, maybe not.
 #[derive(Serialize, Deserialize, Debug)]
-pub struct GetIdentitiesRequest {
+pub struct GetIdentitiesInput {
     pub page_size: u32,
     pub page_token: Option<String>,
     pub group_ids: Option<Vec<String>>,
@@ -92,7 +86,7 @@ pub struct ProcessImageResponse {
 //==== Adding / Removing secondary faces
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AddFaceRequest {
+pub struct AddFaceInput {
     pub identity_id: String, //the main enrollment id
     pub embeddings: Vec<Embedding>,
     pub threshold: f32,
@@ -114,7 +108,7 @@ pub struct AddFaceResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DeleteFaceRequest {
+pub struct DeleteFaceInput {
     pub fr_id: String, //This was an integer in older paravision apis
     pub face_id: String,
 }
@@ -127,7 +121,7 @@ pub struct DeleteFaceResponse {
 //---- end of Secondary Face types
 
 //TODO: The body of this is copied in a couple of places.
-impl From<ProcessImageResponse> for AddFaceRequest {
+impl From<ProcessImageResponse> for AddFaceInput {
     fn from(resp: ProcessImageResponse) -> Self {
         let Some(faces) = resp.faces else {
             return Self {
@@ -162,48 +156,26 @@ impl From<ProcessImageResponse> for AddFaceRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct LookupRequest {
+pub struct LookupInput {
     pub embeddings: Vec<Embedding>,
     #[serde(skip_serializing)]
     pub faces: Option<Vec<Face>>,
     pub limit: i32,
 }
 
-///Convert the result of a process_full_image api call into a LookupRequest
+///Convert the result of a process_full_image api call into a LookupInput
 ///
 /// This is a very common transformation. Detection, extraction of faces from an image followed by
 /// identifying those extracted faces from their generated embeddings
 /// ProcessFullImage detects faces and returns their embeddings and Lookup api
 /// returns possible FR matches from those generated embeddings
-impl From<ProcessImageResponse> for LookupRequest {
+impl From<ProcessImageResponse> for LookupInput {
     fn from(resp: ProcessImageResponse) -> Self {
-        let Some(face_list) = resp.faces else {
-            return Self {
-                //does this even make sense?
-                limit: 1,
-                faces: None,
-                embeddings: vec![],
-            };
-        };
-
-        let mut embeddings = vec![];
-        let mut faces = vec![];
-
-        for f in face_list {
-            if let Some(embedding) = f.embedding.clone() {
-                faces.push(f);
-                embeddings.push(Embedding { embedding });
-            }
-        }
-        Self {
-            limit: 1,
-            faces: Some(faces),
-            embeddings,
-        }
+        Self::from(&resp)
     }
 }
 
-impl From<&ProcessImageResponse> for LookupRequest {
+impl From<&ProcessImageResponse> for LookupInput {
     fn from(resp: &ProcessImageResponse) -> Self {
         let Some(face_list) = resp.faces.as_ref() else {
             return Self {
@@ -297,9 +269,9 @@ pub struct RegistrationError {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct CreateIdentitiesRequest {
+pub struct CreateIdentitiesInput {
     pub embeddings: Vec<Embedding>,
-    pub threshold: f32,
+    pub threshold: f32, //NOTE: threshold for what?
     pub qualities: Vec<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_ids: Option<Vec<String>>,
@@ -307,51 +279,13 @@ pub struct CreateIdentitiesRequest {
     pub external_ids: Option<Vec<String>>,
 }
 
-impl From<ProcessImageResponse> for CreateIdentitiesRequest {
+impl From<ProcessImageResponse> for CreateIdentitiesInput {
     fn from(pr: ProcessImageResponse) -> Self {
-        //we are only ever interested in a single face per image for enrollment.
-        //The detector may find more, so we use most_prominent_face.
-        //NOTE: i think new version always put prominent at idx 0
-        let face_idx = match pr.most_prominent_face_idx {
-            Some(-1) => 0_usize,
-            Some(i) => i as usize,
-            None => 0_usize,
-        };
-
-        let prom_face = pr
-            .faces
-            .and_then(|faces| faces.into_iter().nth(face_idx))
-            .unwrap_or(Face {
-                bounding_box: None,
-                landmarks: None,
-                embedding: None,
-                ages: None,
-                genders: None,
-                aligned_face_image: None,
-                acceptability: None,
-                quality: None,
-                mask: None,
-                liveness_validness: None,
-                liveness: None,
-            });
-        //this is all we ever care about in this context
-        let qualities = vec![prom_face.quality.unwrap_or(0_f32)];
-        let embeddings = vec![match prom_face.embedding {
-            Some(emb) => Embedding { embedding: emb },
-            None => Embedding { embedding: vec![] },
-        }];
-
-        CreateIdentitiesRequest {
-            group_ids: None,
-            qualities,
-            embeddings,
-            threshold: 0.20_f32,
-            external_ids: None, //ccodes might actually be useful
-        }
+        Self::from(&pr)
     }
 }
 
-impl From<&ProcessImageResponse> for CreateIdentitiesRequest {
+impl From<&ProcessImageResponse> for CreateIdentitiesInput {
     fn from(pr: &ProcessImageResponse) -> Self {
         //we are only ever interested in a single face per image for enrollment.
         //The detector may find more, so we use most_prominent_face.
@@ -386,7 +320,7 @@ impl From<&ProcessImageResponse> for CreateIdentitiesRequest {
             None => Embedding { embedding: vec![] }, //this should repr a failure
         }];
 
-        CreateIdentitiesRequest {
+        CreateIdentitiesInput {
             group_ids: None,
             qualities,
             embeddings,
@@ -397,13 +331,13 @@ impl From<&ProcessImageResponse> for CreateIdentitiesRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct DeleteIdentitiesRequest {
+pub struct DeleteIdentitiesInput {
     pub ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_ids: Option<Vec<String>>,
 }
 
-impl From<&str> for DeleteIdentitiesRequest {
+impl From<&str> for DeleteIdentitiesInput {
     fn from(id: &str) -> Self {
         Self {
             ids: vec![id.to_string()],

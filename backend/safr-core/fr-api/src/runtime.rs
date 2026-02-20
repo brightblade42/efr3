@@ -1,10 +1,15 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+#[cfg(test)]
+use libfr::EnrollmentFaceInfo;
 use libfr::{
     backend::{paravision::PVBackend, FRBackend, MatchConfig},
-    remote::{RegistrationPair, Remote, SearchResult},
-    EnrollData, FRIdentity, FRResult, SearchBy,
+    remote::{RegistrationPair, Remote, SearchManyResult, SearchResult},
+    v2::domain::EnrollmentMetadataRecord,
+    AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentCreateResult, EnrollmentDeleteResult,
+    EnrollmentRosterItem, FRIdentity, FRResult, Face, GetFaceInfoResult,
+    ResetEnrollmentsBackendResult, SearchBy,
 };
 use libtpass::api::TPassClient;
 #[cfg(test)]
@@ -43,13 +48,13 @@ impl RemoteRuntime {
 }
 
 impl Remote for RemoteRuntime {
-    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value> {
+    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
         match self {
             Self::TPass(client) => client.register_enrollment(reg_pair).await,
         }
     }
 
-    async fn unregister_enrollment(&self) -> FRResult<Value> {
+    async fn unregister_enrollment(&self) -> FRResult<()> {
         match self {
             Self::TPass(client) => client.unregister_enrollment().await,
         }
@@ -71,7 +76,11 @@ impl Remote for RemoteRuntime {
         }
     }
 
-    async fn search_many(&self, search: SearchBy, include_img: bool) -> FRResult<Vec<Value>> {
+    async fn search_many(
+        &self,
+        search: SearchBy,
+        include_img: bool,
+    ) -> FRResult<Vec<SearchManyResult>> {
         match self {
             Self::TPass(client) => client.search_many(search, include_img).await,
         }
@@ -124,64 +133,72 @@ impl FRBackend for FREngine {
         enroll_data: EnrollData,
         config: MatchConfig,
         ext_id: Option<String>,
-    ) -> FRResult<Value> {
+    ) -> FRResult<EnrollmentCreateResult> {
         match self {
             Self::Paravision(backend) => {
                 backend.create_enrollment(enroll_data, config, ext_id).await
             }
             #[cfg(test)]
-            Self::Mock => Ok(json!({"fr_id":"mock-fr-id","ext_id":123,"ext_id_str":"123"})),
+            Self::Mock => Ok(EnrollmentCreateResult {
+                fr_id: "mock-fr-id".to_string(),
+                ext_id: 123,
+                ext_id_str: "123".to_string(),
+            }),
         }
     }
 
-    async fn delete_enrollment(&self, fr_id: &str) -> FRResult<Value> {
+    async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {
         match self {
             Self::Paravision(backend) => backend.delete_enrollment(fr_id).await,
             #[cfg(test)]
-            Self::Mock => Ok(json!({"fr_id": fr_id})),
+            Self::Mock => Ok(EnrollmentDeleteResult {
+                fr_id: fr_id.to_string(),
+            }),
         }
     }
 
-    async fn get_enrollment_metadata(&self) -> FRResult<Value> {
+    async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         match self {
             Self::Paravision(backend) => backend.get_enrollment_metadata().await,
             #[cfg(test)]
-            Self::Mock => Ok(json!({
-                "profiles_total": 1,
-                "profiles_with_fr_id": 1,
-                "images_total": 1,
-                "registration_errors_total": 0,
-                "enrollment_logs_total": 0
-            })),
+            Self::Mock => Ok(EnrollmentMetadataRecord {
+                profiles_total: 1,
+                profiles_with_fr_id: 1,
+                images_total: 1,
+                registration_errors_total: 0,
+                enrollment_logs_total: 0,
+            }),
         }
     }
 
-    async fn get_enrollment_roster(&self) -> FRResult<Value> {
+    async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
         match self {
             Self::Paravision(backend) => backend.get_enrollment_roster().await,
             #[cfg(test)]
-            Self::Mock => Ok(json!([{
-                "fr_id": "mock-fr-id",
-                "ext_id": 123,
-                "ext_id_str": "123",
-                "details": {"first_name":"Test","last_name":"User"}
-            }])),
+            Self::Mock => Ok(vec![EnrollmentRosterItem {
+                fr_id: Some("mock-fr-id".to_string()),
+                ext_id: 123,
+                ext_id_str: "123".to_string(),
+                details: json!({"first_name":"Test","last_name":"User"}),
+            }]),
         }
     }
 
-    async fn reset_enrollments(&self) -> FRResult<Value> {
+    async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult> {
         match self {
             Self::Paravision(backend) => backend.reset_enrollments().await,
             #[cfg(test)]
-            Self::Mock => Ok(json!({"msg":"mock reset"})),
+            Self::Mock => Ok(ResetEnrollmentsBackendResult {
+                msg: "mock reset".to_string(),
+            }),
         }
     }
 
-    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Value> {
+    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         match self {
             Self::Paravision(backend) => backend.detect_face(image, liveness_check).await,
             #[cfg(test)]
-            Self::Mock => Ok(json!([])),
+            Self::Mock => Ok(Vec::new()),
         }
     }
 
@@ -193,47 +210,55 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value> {
+    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<AddFaceResult> {
         match self {
             Self::Paravision(backend) => backend.add_face(fr_id, image).await,
             #[cfg(test)]
-            Self::Mock => Ok(json!({
-                "faces": [{
-                    "id": "mock-face-id",
-                    "created_at": "2024-01-01T00:00:00Z",
-                    "model": "mock",
-                    "quality": 0.99
-                }]
-            })),
+            Self::Mock => Ok(AddFaceResult {
+                faces: vec![EnrollmentFaceInfo {
+                    id: "mock-face-id".to_string(),
+                    identity_id: fr_id.to_string(),
+                    created_at: "2024-01-01T00:00:00Z".to_string(),
+                    model: "mock".to_string(),
+                    quality: 0.99,
+                }],
+            }),
         }
     }
 
-    async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<Value> {
+    async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
         match self {
             Self::Paravision(backend) => backend.delete_face(fr_id, face_id).await,
             #[cfg(test)]
-            Self::Mock => Ok(json!({"rows_affected": 1, "fr_id": fr_id, "face_id": face_id})),
+            Self::Mock => {
+                let _ = (fr_id, face_id);
+                Ok(DeleteFaceResult { rows_affected: 1 })
+            }
         }
     }
 
-    async fn get_face_info(&self, fr_id: &str) -> FRResult<Value> {
+    async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
         match self {
             Self::Paravision(backend) => backend.get_face_info(fr_id).await,
             #[cfg(test)]
-            Self::Mock => Ok(json!({
-                "faces": [{
-                    "id": "mock-face-id",
-                    "created_at": "2024-01-01T00:00:00Z",
-                    "model": "mock",
-                    "quality": 0.99
+            Self::Mock => Ok(GetFaceInfoResult {
+                faces: vec![EnrollmentFaceInfo {
+                    id: "mock-face-id".to_string(),
+                    identity_id: fr_id.to_string(),
+                    created_at: "2024-01-01T00:00:00Z".to_string(),
+                    model: "mock".to_string(),
+                    quality: 0.99,
                 }],
-                "next_page_token": "",
-                "total_size": 1
-            })),
+                next_page_token: String::new(),
+                total_size: 1,
+            }),
         }
     }
 
-    async fn get_enrollments_by_last_name(&self, name: &str) -> FRResult<Vec<Value>> {
+    async fn get_enrollments_by_last_name(
+        &self,
+        name: &str,
+    ) -> FRResult<Vec<EnrollmentRosterItem>> {
         match self {
             Self::Paravision(backend) => backend.get_enrollments_by_last_name(name).await,
             #[cfg(test)]

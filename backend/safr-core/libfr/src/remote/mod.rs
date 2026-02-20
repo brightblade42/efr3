@@ -6,16 +6,19 @@ use serde_json::Value;
 //some external api based system that holds information about the people that need recognizing.
 #[allow(async_fn_in_trait)]
 pub trait Remote: Send + Sync {
-    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value>;
-    async fn unregister_enrollment(&self) -> FRResult<Value>;
-    //async fn search(&self, enroll_data: &EnrollData) -> FRResult<Vec<Value>>;
+    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()>;
+    async fn unregister_enrollment(&self) -> FRResult<()>;
     async fn search(&self, enroll_data: &EnrollData) -> FRResult<Vec<SearchResult>>;
     async fn search_one(
         &self,
         search: SearchBy,
         include_image: bool,
     ) -> FRResult<Option<SearchResult>>;
-    async fn search_many(&self, search: SearchBy, include_img: bool) -> FRResult<Vec<Value>>;
+    async fn search_many(
+        &self,
+        search: SearchBy,
+        include_img: bool,
+    ) -> FRResult<Vec<SearchManyResult>>;
     //async fn create_profile(&self, some_profile_info) -> FRResult;
 }
 
@@ -27,6 +30,12 @@ pub struct SearchResult {
     pub image: Option<Image>,
     pub id: Option<String>,
     pub details: Option<Value>, //json, let it be what it be.
+}
+
+#[derive(Debug)]
+pub struct SearchManyResult {
+    pub ccode: u64,
+    pub details: Value,
 }
 
 ///A registration pair is the combination of our local fr_id and a client's external id.

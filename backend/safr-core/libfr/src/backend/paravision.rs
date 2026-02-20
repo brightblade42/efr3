@@ -1,12 +1,16 @@
 use super::{FRBackend, FRResult, MatchConfig};
-use crate::{utils, EnrollData, EnrollDetails, FRError};
-use crate::{FRIdentity, Face, PossibleMatch};
+use crate::v2::domain::EnrollmentMetadataRecord;
+use crate::{
+    utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
+    EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult,
+    PossibleMatch, ResetEnrollmentsBackendResult,
+};
 use bytes::Bytes;
 use libpv::identity_grpc::PVIdentityGrpcApi;
 use libpv::proc_grpc::PVProcGrpcApi;
 use libpv::types::{
-    AddFaceRequest, CreateIdentitiesRequest, DeleteFaceRequest, DeleteIdentitiesRequest, Embedding,
-    GetFacesRequest, LookupRequest, LookupResponse,
+    AddFaceInput, CreateIdentitiesInput, DeleteFaceInput, DeleteIdentitiesInput, Embedding,
+    GetFacesInput, LookupInput, LookupResponse,
 };
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -43,7 +47,7 @@ impl PVBackend {
         &self,
         enroll_data: &EnrollData,
         config: MatchConfig,
-    ) -> FRResult<CreateIdentitiesRequest> {
+    ) -> FRResult<CreateIdentitiesInput> {
         let image = enroll_data.image.clone().ok_or_else(|| {
             FRError::with_code(
                 1010,
@@ -249,7 +253,7 @@ impl PVBackend {
             .collect()
     }
 
-    fn profile_to_enrollment_item(row: EnrollmentRosterRow) -> Value {
+    fn profile_to_enrollment_item(row: EnrollmentRosterRow) -> EnrollmentRosterItem {
         let details = row.raw_data.unwrap_or_else(|| {
             json!({
                 "first_name": row.first_name,
@@ -259,12 +263,12 @@ impl PVBackend {
             })
         });
 
-        json!({
-            "fr_id": row.fr_id,
-            "ext_id": row.ext_id.parse::<u64>().unwrap_or(0),
-            "ext_id_str": row.ext_id,
-            "details": details,
-        })
+        EnrollmentRosterItem {
+            fr_id: row.fr_id,
+            ext_id: row.ext_id.parse::<u64>().unwrap_or(0),
+            ext_id_str: row.ext_id,
+            details,
+        }
     }
 }
 
@@ -274,7 +278,7 @@ impl FRBackend for PVBackend {
         enroll_data: EnrollData,
         config: MatchConfig,
         ext_id: Option<String>,
-    ) -> FRResult<Value> {
+    ) -> FRResult<EnrollmentCreateResult> {
         if enroll_data.image.is_none() {
             return Err(FRError::with_code(
                 1010,
@@ -333,11 +337,15 @@ impl FRBackend for PVBackend {
         let fr_id = ident.id;
         let eid_str = ext_id.unwrap_or_default();
         let eid_num = eid_str.parse::<u64>().unwrap_or(0);
-        Ok(json!({"fr_id": fr_id, "ext_id": eid_num, "ext_id_str": eid_str}))
+        Ok(EnrollmentCreateResult {
+            fr_id,
+            ext_id: eid_num,
+            ext_id_str: eid_str,
+        })
     }
 
-    async fn delete_enrollment(&self, face_id: &str) -> FRResult<Value> {
-        let del_req = DeleteIdentitiesRequest::from(face_id);
+    async fn delete_enrollment(&self, face_id: &str) -> FRResult<EnrollmentDeleteResult> {
+        let del_req = DeleteIdentitiesInput::from(face_id);
 
         let res = self
             .ident_api
@@ -348,7 +356,7 @@ impl FRBackend for PVBackend {
             .ok_or_else(|| FRError::with_code(1090, "pv returned no results for delete."))?;
 
         match res {
-            Ok(del_id) => Ok(json!({ "fr_id": del_id })),
+            Ok(del_id) => Ok(EnrollmentDeleteResult { fr_id: del_id }),
             Err(e) => {
                 let details = json!({ "fr_id": face_id });
                 let fr_err = FRError::with_details(e.code, &e.message, details.clone());
@@ -359,7 +367,7 @@ impl FRBackend for PVBackend {
         }
     }
 
-    async fn get_enrollment_metadata(&self) -> FRResult<Value> {
+    async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
             r#"
             select
@@ -373,16 +381,16 @@ impl FRBackend for PVBackend {
         .fetch_one(&self.db)
         .await?;
 
-        Ok(json!({
-            "profiles_total": row.0,
-            "profiles_with_fr_id": row.1,
-            "images_total": row.2,
-            "registration_errors_total": row.3,
-            "enrollment_logs_total": row.4,
-        }))
+        Ok(EnrollmentMetadataRecord {
+            profiles_total: row.0,
+            profiles_with_fr_id: row.1,
+            images_total: row.2,
+            registration_errors_total: row.3,
+            enrollment_logs_total: row.4,
+        })
     }
 
-    async fn get_enrollment_roster(&self) -> FRResult<Value> {
+    async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
         let rows = sqlx::query_as::<_, EnrollmentRosterRow>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
@@ -394,24 +402,23 @@ impl FRBackend for PVBackend {
         .fetch_all(&self.db)
         .await?;
 
-        Ok(Value::Array(
-            rows.into_iter()
-                .map(Self::profile_to_enrollment_item)
-                .collect(),
-        ))
+        Ok(rows
+            .into_iter()
+            .map(Self::profile_to_enrollment_item)
+            .collect())
     }
 
-    async fn reset_enrollments(&self) -> FRResult<Value> {
+    async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult> {
         let res = self.ident_api.delete_identities(None).await?;
 
         info!("Enrollments deleted from pv: {}", res.len());
 
-        Ok(json!({
-            "msg" : "All PV enrollments have been deleted. System reset."
-        }))
+        Ok(ResetEnrollmentsBackendResult {
+            msg: "All PV enrollments have been deleted. System reset.".to_string(),
+        })
     }
 
-    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Value> {
+    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         let img_resp = if liveness_check {
             self.proc_api.process_image_liveness(image).await?
         } else {
@@ -423,13 +430,12 @@ impl FRBackend for PVBackend {
             None => vec![],
         };
 
-        Ok(serde_json::to_value(faces)?)
+        Ok(faces)
     }
-
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
         let img_resp = self.proc_api.process_image(image, None, true).await?;
 
-        let mut lookup_req = LookupRequest::from(img_resp);
+        let mut lookup_req = LookupInput::from(img_resp);
         lookup_req.limit = config.top_n;
 
         let lookup_vec = self.ident_api.lookup(lookup_req).await?;
@@ -455,37 +461,40 @@ impl FRBackend for PVBackend {
         Ok(self.to_fr_identities(&lookups, config.min_match))
     }
 
-    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<Value> {
+    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<AddFaceResult> {
         let img_res = self.proc_api.process_image(image, None, true).await?;
 
-        let mut af_req = AddFaceRequest::from(img_res);
+        let mut af_req = AddFaceInput::from(img_res);
         af_req.identity_id = fr_id.to_string();
         af_req.threshold = 0.0;
 
         let face_resp = self.ident_api.add_face(af_req).await?;
-        Ok(serde_json::to_value(face_resp)?)
+        Ok(face_resp)
     }
 
-    async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<Value> {
-        let del_req = DeleteFaceRequest {
+    async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
+        let del_req = DeleteFaceInput {
             fr_id: fr_id.to_string(),
             face_id: face_id.to_string(),
         };
 
         let res = self.ident_api.delete_face(&del_req).await?;
-        Ok(serde_json::to_value(res)?)
+        Ok(res)
     }
 
-    async fn get_face_info(&self, fr_id: &str) -> FRResult<Value> {
-        let req = GetFacesRequest {
+    async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
+        let req = GetFacesInput {
             fr_id: fr_id.to_string(),
         };
 
         let res = self.ident_api.get_faces(req).await?;
-        Ok(serde_json::to_value(res)?)
+        Ok(res)
     }
 
-    async fn get_enrollments_by_last_name(&self, name: &str) -> FRResult<Vec<Value>> {
+    async fn get_enrollments_by_last_name(
+        &self,
+        name: &str,
+    ) -> FRResult<Vec<EnrollmentRosterItem>> {
         let like_pattern = format!("{}%", name.trim());
         let rows = sqlx::query_as::<_, EnrollmentRosterRow>(
             r#"

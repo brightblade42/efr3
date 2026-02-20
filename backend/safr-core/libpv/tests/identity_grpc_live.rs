@@ -7,7 +7,7 @@ use libpv::proc_grpc::{
     PVProcGrpcApi,
 };
 use libpv::types::{
-    AddFaceRequest, CreateIdentitiesRequest, DeleteIdentitiesRequest, Embedding, GetFacesRequest,
+    AddFaceInput, CreateIdentitiesInput, DeleteIdentitiesInput, Embedding, GetFacesInput,
 };
 use std::env;
 use std::fs;
@@ -73,7 +73,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     let second = templates.get(1).cloned().unwrap_or_else(|| first.clone());
 
     let external_id = format!("grpc-smoke-{}", unix_millis());
-    let create_req = CreateIdentitiesRequest {
+    let create_req = CreateIdentitiesInput {
         embeddings: vec![Embedding {
             embedding: first.embedding.clone(),
         }],
@@ -104,7 +104,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
 
     let mut issues: Vec<String> = Vec::new();
 
-    let add_req = AddFaceRequest {
+    let add_req = AddFaceInput {
         identity_id: created_id.clone(),
         embeddings: vec![Embedding {
             embedding: second.embedding.clone(),
@@ -134,7 +134,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     }
 
     match ident_api
-        .get_faces(GetFacesRequest {
+        .get_faces(GetFacesInput {
             fr_id: created_id.clone(),
         })
         .await
@@ -183,7 +183,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     }
 
     let delete_results = ident_api
-        .delete_identities(Some(DeleteIdentitiesRequest {
+        .delete_identities(Some(DeleteIdentitiesInput {
             ids: vec![created_id.clone()],
             external_ids: None,
         }))

@@ -3,7 +3,11 @@ use axum::{
     Json,
 };
 use libfr::backend::MatchConfig;
-use libfr::v2::domain::ExternalId;
+use libfr::v2::domain::{EnrollmentMetadataRecord, ExternalId};
+use libfr::{
+    AddFaceResult, EnrollmentCreateResult, EnrollmentDeleteResult, EnrollmentRosterItem,
+    GetFaceInfoResult, ResetEnrollmentsResult,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::info;
@@ -13,7 +17,7 @@ use crate::{errors::AppError::Generic, extractors, AppState, WResult};
 pub async fn search_enrollment(
     State(app_state): State<AppState>,
     Json(search_by): Json<SearchEnrollmentBy>,
-) -> WResult<Json<Vec<Value>>> {
+) -> WResult<Json<Vec<EnrollmentRosterItem>>> {
     let SearchEnrollmentBy::LastName(term) = search_by;
 
     let res = app_state
@@ -27,21 +31,21 @@ pub async fn search_enrollment(
 pub async fn create_enrollment(
     State(app_state): State<AppState>,
     multipart: Multipart,
-) -> WResult<Json<Value>> {
+) -> WResult<Json<EnrollmentCreateResult>> {
     let enroll_data = extractors::extract_enroll_data(multipart).await?;
     let mconf = MatchConfig::from(&app_state.config);
 
     let res = app_state
         .fr_service
         .create_enrollment(enroll_data, mconf)
-        .await;
-    info!("hello");
-    info!("{:?}", res);
-    Ok(Json(res?))
+        .await?;
+    Ok(Json(res))
 }
 
 /// Returns a list of every enrollment in the system. We will want to add paging.
-pub async fn get_enrollment_roster(State(app_state): State<AppState>) -> WResult<Json<Value>> {
+pub async fn get_enrollment_roster(
+    State(app_state): State<AppState>,
+) -> WResult<Json<Vec<EnrollmentRosterItem>>> {
     let res = app_state.fr_service.get_enrollment_roster().await?;
     Ok(Json(res))
 }
@@ -49,7 +53,7 @@ pub async fn get_enrollment_roster(State(app_state): State<AppState>) -> WResult
 pub async fn delete_enrollment(
     State(app_state): State<AppState>,
     Json(payload): Json<DeleteEnrollmentBy>,
-) -> WResult<Json<Value>> {
+) -> WResult<Json<EnrollmentDeleteResult>> {
     let fr_id = resolve_fr_id_for_delete(&app_state, payload).await?;
     let res = app_state.fr_service.delete_enrollment(&fr_id).await?;
     info!("{:?}", res);
@@ -57,7 +61,9 @@ pub async fn delete_enrollment(
 }
 
 /// Deletes all enrollments and resets everything.
-pub async fn reset_enrollments(State(app_state): State<AppState>) -> WResult<Json<Value>> {
+pub async fn reset_enrollments(
+    State(app_state): State<AppState>,
+) -> WResult<Json<ResetEnrollmentsResult>> {
     let res = app_state.fr_service.reset_enrollments().await?;
     Ok(Json(res))
 }
@@ -66,7 +72,7 @@ pub async fn add_face(
     State(app_state): State<AppState>,
     Query(query): Query<AddFaceQuery>,
     multipart: Multipart,
-) -> WResult<Json<Value>> {
+) -> WResult<Json<AddFaceResult>> {
     let fr_id = query.fr_id.trim();
     if fr_id.is_empty() {
         return Err(Generic(
@@ -86,7 +92,7 @@ pub async fn add_face(
 pub async fn delete_face(
     State(app_state): State<AppState>,
     Json(req): Json<DeleteFaceRequest>,
-) -> WResult<Json<Value>> {
+) -> WResult<Json<DeleteFaceApiResponse>> {
     if req.fr_id.trim().is_empty() || req.face_id.trim().is_empty() {
         return Err(Generic(
             "fr_id and face_id are required to delete a face".to_string(),
@@ -97,13 +103,17 @@ pub async fn delete_face(
         .fr_service
         .delete_face(&req.fr_id, &req.face_id)
         .await?;
-    Ok(Json(res))
+    Ok(Json(DeleteFaceApiResponse {
+        rows_affected: res.rows_affected,
+        fr_id: req.fr_id,
+        face_id: req.face_id,
+    }))
 }
 
 pub async fn get_face_info(
     State(app_state): State<AppState>,
     Json(req): Json<GetFaceInfoRequest>,
-) -> WResult<Json<Value>> {
+) -> WResult<Json<GetFaceInfoResult>> {
     if req.fr_id.trim().is_empty() {
         return Err(Generic("fr_id is required to get face info".to_string()));
     }
@@ -126,7 +136,9 @@ pub async fn get_enrollment_errlog(State(app_state): State<AppState>) -> WResult
 }
 
 /// Gets metadata about the enrollment database.
-pub async fn get_enrollment_metadata(State(app_state): State<AppState>) -> WResult<Json<Value>> {
+pub async fn get_enrollment_metadata(
+    State(app_state): State<AppState>,
+) -> WResult<Json<EnrollmentMetadataRecord>> {
     let res = app_state.fr_service.get_enrollment_metadata().await?;
     Ok(Json(res))
 }
@@ -260,6 +272,13 @@ pub(crate) struct AddFaceQuery {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct DeleteFaceRequest {
+    pub fr_id: String,
+    pub face_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct DeleteFaceApiResponse {
+    pub rows_affected: i32,
     pub fr_id: String,
     pub face_id: String,
 }

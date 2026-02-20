@@ -1,21 +1,25 @@
-use chrono::{DateTime, SecondsFormat, Utc};
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 
 use crate::errors::PVApiError;
+use crate::grpc_utils::normalize_endpoint;
+use crate::identity_mapper::{
+    to_add_face_request, to_add_face_response, to_create_identities_request,
+    to_create_identities_response, to_delete_face_response, to_delete_faces_request,
+    to_delete_identities_request, to_get_faces_request, to_get_faces_response,
+    to_get_identities_request, to_identities, to_lookup_identities, to_lookup_request,
+};
 use crate::types::{
-    AddFaceRequest, AddFaceResponse, CreateIdentitiesRequest, CreateIdentitiesResponse,
-    DeleteFaceRequest, DeleteFaceResponse, DeleteIdentitiesRequest, Embedding, Face, FaceInfo,
-    GetFacesRequest, GetFacesResponse, GetIdentitiesRequest, Identities, Identity, IdentityMatch,
-    LookupIdentities, LookupIdentity, LookupRequest, LookupResponse,
+    AddFaceInput, AddFaceResponse, CreateIdentitiesInput, CreateIdentitiesResponse,
+    DeleteFaceInput, DeleteFaceResponse, DeleteIdentitiesInput, Embedding, Face, GetFacesInput,
+    GetFacesResponse, GetIdentitiesInput, Identities, LookupIdentities, LookupInput,
+    LookupResponse,
 };
 
 type PVResult<T> = Result<T, PVApiError>;
 type PVResultMany<T> = PVResult<Vec<PVResult<T>>>;
 
 const DEFAULT_PAGE_SIZE: u32 = 100;
-const DEFAULT_SCALING_FACTOR: f32 = 2.0;
-const DEFAULT_BUCKETS_LIMIT: i64 = 32;
 
 pub mod identity {
     tonic::include_proto!("identity.v7");
@@ -33,67 +37,46 @@ impl PVIdentityGrpcApi {
         }
     }
 
-    pub async fn get_identities(&self, req: Option<GetIdentitiesRequest>) -> PVResult<Identities> {
+    pub async fn get_identities(&self, req: Option<GetIdentitiesInput>) -> PVResult<Identities> {
         let mut client = self.identity_client().await?;
-        let req = req.unwrap_or(GetIdentitiesRequest {
+        let req = req.unwrap_or(GetIdentitiesInput {
             page_size: DEFAULT_PAGE_SIZE,
             page_token: Some(String::new()),
             group_ids: None,
         });
 
-        let grpc_req = identity::GetIdentitiesRequest {
-            group_ids: req.group_ids.unwrap_or_default(),
-            page_token: req.page_token.unwrap_or_default(),
-            page_size: req.page_size as i32,
-        };
+        let grpc_req = to_get_identities_request(req);
 
         let response = client
             .get_identities(Request::new(grpc_req))
             .await?
             .into_inner();
 
-        Ok(Identities {
-            identities: response.identities.into_iter().map(to_identity).collect(),
-            next_page_token: response.next_page_token,
-            total_size: response.total_size.max(0) as u64,
-        })
+        Ok(to_identities(response))
     }
 
     pub async fn create_identities(
         &self,
-        req: CreateIdentitiesRequest,
+        req: CreateIdentitiesInput,
     ) -> PVResult<CreateIdentitiesResponse> {
         let mut client = self.identity_client().await?;
-
-        let grpc_req = identity::CreateIdentitiesRequest {
-            group_ids: req.group_ids.unwrap_or_default(),
-            embeddings: req.embeddings.into_iter().map(to_proto_embedding).collect(),
-            threshold: req.threshold,
-            model: String::new(),
-            qualities: req.qualities,
-            external_ids: req.external_ids.unwrap_or_default(),
-            scaling_factor: DEFAULT_SCALING_FACTOR,
-            buckets_limit: DEFAULT_BUCKETS_LIMIT,
-            options: vec![],
-        };
+        let grpc_req = to_create_identities_request(req);
 
         let response = client
             .create_identities(Request::new(grpc_req))
             .await?
             .into_inner();
 
-        Ok(CreateIdentitiesResponse {
-            identities: response.identities.into_iter().map(to_identity).collect(),
-        })
+        Ok(to_create_identities_response(response))
     }
 
     pub async fn delete_identities(
         &self,
-        delete_req: Option<DeleteIdentitiesRequest>,
+        delete_req: Option<DeleteIdentitiesInput>,
     ) -> PVResultMany<String> {
         let delete_targets: Vec<(Option<String>, Option<String>, String)> = match delete_req {
             None => {
-                let req = Some(GetIdentitiesRequest {
+                let req = Some(GetIdentitiesInput {
                     page_size: 100000,
                     page_token: Some(String::new()),
                     group_ids: None,
@@ -144,10 +127,7 @@ impl PVIdentityGrpcApi {
         let mut results: Vec<PVResult<String>> = Vec::with_capacity(delete_targets.len());
 
         for (id, external_id, label) in delete_targets {
-            let grpc_req = identity::DeleteIdentitiesRequest {
-                ids: id.into_iter().collect(),
-                external_ids: external_id.into_iter().collect(),
-            };
+            let grpc_req = to_delete_identities_request(id, external_id);
 
             match client.delete_identities(Request::new(grpc_req)).await {
                 Ok(response) => {
@@ -169,22 +149,14 @@ impl PVIdentityGrpcApi {
 
     pub async fn lookup_single(&self, embedding: Embedding) -> PVResult<LookupIdentities> {
         let mut client = self.identity_client().await?;
-
-        let req = identity::LookupRequest {
-            group_ids: vec![],
-            embeddings: vec![to_proto_embedding(embedding)],
-            limit: 1,
-            model: String::new(),
-            scaling_factor: DEFAULT_SCALING_FACTOR,
-            buckets_limit: DEFAULT_BUCKETS_LIMIT,
-        };
+        let req = to_lookup_request(vec![embedding], 1);
 
         let response = client.lookup(Request::new(req)).await?.into_inner();
         Ok(to_lookup_identities(response))
     }
 
-    pub async fn lookup<I: Into<LookupRequest>>(&self, req: I) -> PVResultMany<LookupResponse> {
-        let req: LookupRequest = req.into();
+    pub async fn lookup<I: Into<LookupInput>>(&self, req: I) -> PVResultMany<LookupResponse> {
+        let req: LookupInput = req.into();
         let faces = req
             .faces
             .ok_or_else(|| PVApiError::with_code(500, "lookup: There were no faces provided"))?;
@@ -205,14 +177,7 @@ impl PVIdentityGrpcApi {
                 }
             };
 
-            let lookup_req = identity::LookupRequest {
-                group_ids: vec![],
-                embeddings: vec![to_proto_embedding(Embedding { embedding })],
-                limit,
-                model: String::new(),
-                scaling_factor: DEFAULT_SCALING_FACTOR,
-                buckets_limit: DEFAULT_BUCKETS_LIMIT,
-            };
+            let lookup_req = to_lookup_request(vec![Embedding { embedding }], limit);
 
             match client.lookup(Request::new(lookup_req)).await {
                 Ok(response) => {
@@ -231,60 +196,33 @@ impl PVIdentityGrpcApi {
         Ok(results)
     }
 
-    pub async fn add_face(&self, req: AddFaceRequest) -> PVResult<AddFaceResponse> {
+    pub async fn add_face(&self, req: AddFaceInput) -> PVResult<AddFaceResponse> {
         let mut client = self.identity_client().await?;
-
-        let grpc_req = identity::AddFacesRequest {
-            identity_id: req.identity_id,
-            embeddings: req.embeddings.into_iter().map(to_proto_embedding).collect(),
-            threshold: req.threshold,
-            model: String::new(),
-            qualities: req.qualities,
-            scaling_factor: DEFAULT_SCALING_FACTOR,
-            buckets_limit: DEFAULT_BUCKETS_LIMIT,
-            flush: Some(true),
-        };
+        let grpc_req = to_add_face_request(req);
 
         let response = client.add_faces(Request::new(grpc_req)).await?.into_inner();
-        Ok(AddFaceResponse {
-            faces: response.faces.into_iter().map(to_face_info).collect(),
-        })
+        Ok(to_add_face_response(response))
     }
 
-    pub async fn delete_face(&self, req: &DeleteFaceRequest) -> PVResult<DeleteFaceResponse> {
+    pub async fn delete_face(&self, req: &DeleteFaceInput) -> PVResult<DeleteFaceResponse> {
         let mut client = self.identity_client().await?;
-
-        let grpc_req = identity::DeleteFacesRequest {
-            identity_id: req.fr_id.clone(),
-            face_ids: vec![req.face_id.clone()],
-        };
+        let grpc_req = to_delete_faces_request(req);
 
         let response = client
             .delete_faces(Request::new(grpc_req))
             .await?
             .into_inner();
 
-        Ok(DeleteFaceResponse {
-            rows_affected: response.rows_affected,
-        })
+        Ok(to_delete_face_response(response))
     }
 
-    pub async fn get_faces(&self, req: GetFacesRequest) -> PVResult<GetFacesResponse> {
+    pub async fn get_faces(&self, req: GetFacesInput) -> PVResult<GetFacesResponse> {
         let mut client = self.identity_client().await?;
-
-        let grpc_req = identity::GetFacesRequest {
-            identity_id: req.fr_id,
-            page_token: String::new(),
-            page_size: DEFAULT_PAGE_SIZE as i32,
-        };
+        let grpc_req = to_get_faces_request(req, DEFAULT_PAGE_SIZE);
 
         let response = client.get_faces(Request::new(grpc_req)).await?.into_inner();
 
-        Ok(GetFacesResponse {
-            faces: response.faces.into_iter().map(to_face_info).collect(),
-            next_page_token: response.next_page_token,
-            total_size: response.total_size,
-        })
+        Ok(to_get_faces_response(response))
     }
 
     async fn identity_client(
@@ -296,92 +234,4 @@ impl PVIdentityGrpcApi {
         let channel = endpoint.connect().await?;
         Ok(identity::identity_service_client::IdentityServiceClient::new(channel))
     }
-}
-
-fn normalize_endpoint(endpoint: String) -> String {
-    let endpoint = endpoint.trim().trim_end_matches('/').to_string();
-    if endpoint.contains("://") {
-        endpoint
-    } else {
-        format!("http://{}", endpoint)
-    }
-}
-
-fn to_proto_embedding(embedding: Embedding) -> identity::Embedding {
-    identity::Embedding {
-        embedding: embedding.embedding,
-    }
-}
-
-fn to_identity(identity: identity::Identity) -> Identity {
-    Identity {
-        id: identity.id,
-        created_at: timestamp_to_rfc3339(identity.created_at),
-        external_id: if identity.external_id.is_empty() {
-            None
-        } else {
-            Some(identity.external_id)
-        },
-        updated_at: timestamp_to_rfc3339(identity.updated_at),
-        group_ids: if identity.group_ids.is_empty() {
-            None
-        } else {
-            Some(identity.group_ids)
-        },
-    }
-}
-
-fn to_face_info(face: identity::Face) -> FaceInfo {
-    FaceInfo {
-        id: face.id,
-        identity_id: face.identity_id,
-        created_at: timestamp_to_rfc3339(face.created_at),
-        model: face.model,
-        quality: face.quality,
-    }
-}
-
-fn to_lookup_identities(response: identity::LookupResponse) -> LookupIdentities {
-    LookupIdentities {
-        lookup_identities: response
-            .lookup_identities
-            .into_iter()
-            .map(|item| LookupIdentity {
-                matches: item
-                    .matches
-                    .into_iter()
-                    .map(|item| IdentityMatch {
-                        identity: item
-                            .identity
-                            .map(to_identity)
-                            .unwrap_or_else(empty_identity),
-                        score: item.score,
-                    })
-                    .collect(),
-            })
-            .collect(),
-    }
-}
-
-fn empty_identity() -> Identity {
-    Identity {
-        id: String::new(),
-        created_at: String::new(),
-        external_id: None,
-        updated_at: String::new(),
-        group_ids: None,
-    }
-}
-
-fn timestamp_to_rfc3339(timestamp: Option<prost_types::Timestamp>) -> String {
-    let Some(timestamp) = timestamp else {
-        return String::new();
-    };
-
-    let Some(datetime) = DateTime::<Utc>::from_timestamp(timestamp.seconds, timestamp.nanos as u32)
-    else {
-        return String::new();
-    };
-
-    datetime.to_rfc3339_opts(SecondsFormat::Micros, true)
 }

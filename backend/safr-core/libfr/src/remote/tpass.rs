@@ -6,10 +6,10 @@ use libtpass::api::TPassClient;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
-use super::{RegistrationPair, SearchResult};
+use super::{RegistrationPair, SearchManyResult, SearchResult};
 
 impl Remote for TPassClient {
-    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value> {
+    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
         //TODO: reconstruct enrollment from old TPass functions.
         let ccode = reg_pair.ext_id.parse::<u64>().map_err(|e| {
             FRError::with_details(
@@ -32,12 +32,12 @@ impl Remote for TPassClient {
             ));
         }
 
-        Ok(res) //ok is enough to indicate success.
+        Ok(()) //ok is enough to indicate success.
     }
 
-    async fn unregister_enrollment(&self) -> FRResult<Value> {
+    async fn unregister_enrollment(&self) -> FRResult<()> {
         warn!("UN-Registering an identity! TBI");
-        Ok(json!({"msg": "dummy message. Tpass un-register doesn't exist "}))
+        Ok(())
     }
 
     //NOTE: we only want single results. but a name search is squirelly.
@@ -146,15 +146,6 @@ impl Remote for TPassClient {
                 //do a name search
                 let full_name = format!("{},{}", last_name, first_name);
 
-                let sr = self.search_by_name(&full_name).await;
-                match sr {
-                    Err(er) => {
-                        info!("holy moly");
-                        info!("{}", er);
-                    }
-                    _ => info!("goo stuff"),
-                }
-
                 let sr = match self.search_by_name(&full_name).await?.first() {
                     Some(item) => {
                         info!("HELOO SOME!!!!");
@@ -232,7 +223,11 @@ impl Remote for TPassClient {
     }
 
     ///search tpass for multiple clients with a batch of ccodes, obviously.
-    async fn search_many(&self, search: SearchBy, _include_img: bool) -> FRResult<Vec<Value>> {
+    async fn search_many(
+        &self,
+        search: SearchBy,
+        _include_img: bool,
+    ) -> FRResult<Vec<SearchManyResult>> {
         if let SearchBy::ExtIDS(ccodes) = search {
             let mut ncode = vec![];
             for idk in ccodes {
@@ -242,8 +237,15 @@ impl Remote for TPassClient {
             }
 
             let res = self.get_clients_by_ccode(ncode).await?;
-
-            Ok(res)
+            Ok(res
+                .into_iter()
+                .filter_map(|details| {
+                    details
+                        .get("ccode")
+                        .and_then(Value::as_u64)
+                        .map(|ccode| SearchManyResult { ccode, details })
+                })
+                .collect())
         } else {
             return Err(FRError::with_code(
                 2000,

@@ -3,6 +3,7 @@ pub mod remote;
 pub mod v2;
 use bytes::Bytes;
 use libpv::errors::PVApiError;
+use libpv::types::{AddFaceResponse, DeleteFaceResponse, GetFacesResponse};
 use libtpass::errors::TPassError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -137,6 +138,42 @@ pub enum SearchBy {
     ExtID(IDKind),
     ExtIDS(Vec<IDKind>),
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentCreateResult {
+    pub fr_id: String,
+    pub ext_id: u64,
+    pub ext_id_str: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentDeleteResult {
+    pub fr_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentRosterItem {
+    pub fr_id: Option<String>,
+    pub ext_id: u64,
+    pub ext_id_str: String,
+    pub details: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResetEnrollmentsBackendResult {
+    pub msg: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResetEnrollmentsResult {
+    pub msg: String,
+    pub local_reset: v2::domain::EnrollmentResetRecord,
+}
+
+pub type AddFaceResult = AddFaceResponse;
+pub type DeleteFaceResult = DeleteFaceResponse;
+pub type GetFaceInfoResult = GetFacesResponse;
+pub type EnrollmentFaceInfo = libpv::types::FaceInfo;
 
 //recognition types
 
