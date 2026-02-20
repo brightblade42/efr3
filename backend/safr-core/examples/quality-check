@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+IMAGE="${1:-$DEFAULT_IMAGE}"
+require_image "$IMAGE"
+
+curl_json POST "/fr/v2/quality-check" \
+  -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg"

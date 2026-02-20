@@ -148,13 +148,14 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/create-profile", post(profile_handlers::create_profile))
         .route("/edit-profile", post(profile_handlers::edit_profile))
         .route("/send-alert", post(tpass_handlers::send_fr_alert))
-        .route("/detect", post(recognition_handlers::detect_image)) //detect, bbox.
-        //NOTE: detect_spoof was replaced with validate-image
+        .route("/detect", post(recognition_handlers::detect_faces)) //detect, bbox.
+        //NOTE: validate image, does liveness and includes quality
         .route(
             "/validate-image",
             post(recognition_handlers::liveness_check),
         )
-        //.route("/detect_embed", post(detect_image_embed)) //detect, bbox + embeddngs
+        //just the quality. validate is a more verbose version
+        .route("/quality-check", post(recognition_handlers::quality_check))
         .route("/recognize", post(recognition_handlers::recognize))
         //a combo on recognition and notifying remote of building entrance / exit.
         .route(
