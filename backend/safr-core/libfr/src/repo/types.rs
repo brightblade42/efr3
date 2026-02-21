@@ -1,4 +1,3 @@
-use crate::BoundingBox;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -100,60 +99,4 @@ pub struct EnrollmentResetRecord {
     pub images_deleted: i64,
     pub registration_errors_deleted: i64,
     pub enrollment_logs_deleted: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DetectedFace {
-    pub bounding_box: Option<BoundingBox>,
-    pub acceptability: f32,
-    pub quality: f32,
-    pub liveness_score: f32,
-    pub liveness_is_live: bool,
-    pub liveness_feedback: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidateImageThresholds {
-    pub min_acceptability: f32,
-    pub min_quality: f32,
-    pub min_score: f32,
-}
-
-impl Default for ValidateImageThresholds {
-    fn default() -> Self {
-        Self {
-            min_acceptability: 0.8,
-            min_quality: 0.8,
-            min_score: 0.5,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidateImageResult {
-    pub image: ValidateImageDetails,
-    pub face: ValidateImageFace,
-    pub liveness: ValidateImageLiveness,
-    pub is_valid: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidateImageDetails {
-    pub min_acceptability: f32,
-    pub min_quality: f32,
-    pub acceptability: f32,
-    pub quality: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidateImageFace {
-    pub bounding_box: Option<BoundingBox>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidateImageLiveness {
-    pub min_score: f32,
-    pub score: f32,
-    pub feedback: Vec<String>,
-    pub is_live: bool,
 }
