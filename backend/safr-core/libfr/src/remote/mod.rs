@@ -14,11 +14,8 @@ pub trait Remote: Send + Sync {
         search: SearchBy,
         include_image: bool,
     ) -> FRResult<Option<SearchResult>>;
-    async fn search_many(
-        &self,
-        search: SearchBy,
-        include_img: bool,
-    ) -> FRResult<Vec<SearchManyResult>>;
+    async fn search_many(&self, search: SearchBy, include_img: bool)
+        -> FRResult<Vec<SearchResult>>;
     //async fn create_profile(&self, some_profile_info) -> FRResult;
 }
 
@@ -30,12 +27,6 @@ pub struct SearchResult {
     pub image: Option<Image>,
     pub id: Option<String>,
     pub details: Option<Value>, //json, let it be what it be.
-}
-
-#[derive(Debug)]
-pub struct SearchManyResult {
-    pub ccode: u64,
-    pub details: Value,
 }
 
 ///A registration pair is the combination of our local fr_id and a client's external id.

@@ -5,7 +5,7 @@ use bytes::Bytes;
 use libfr::EnrollmentFaceInfo;
 use libfr::{
     backend::{paravision::PVBackend, FRBackend, MatchConfig},
-    remote::{RegistrationPair, Remote, SearchManyResult, SearchResult},
+    remote::{RegistrationPair, Remote, SearchResult},
     repo::EnrollmentMetadataRecord,
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentCreateResult, EnrollmentDeleteResult,
     EnrollmentRosterItem, FRIdentity, FRResult, Face, GetFaceInfoResult,
@@ -80,7 +80,7 @@ impl Remote for RemoteRuntime {
         &self,
         search: SearchBy,
         include_img: bool,
-    ) -> FRResult<Vec<SearchManyResult>> {
+    ) -> FRResult<Vec<SearchResult>> {
         match self {
             Self::TPass(client) => client.search_many(search, include_img).await,
         }

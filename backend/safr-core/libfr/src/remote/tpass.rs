@@ -6,7 +6,7 @@ use libtpass::api::TPassClient;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
-use super::{RegistrationPair, SearchManyResult, SearchResult};
+use super::{RegistrationPair, SearchResult};
 
 impl Remote for TPassClient {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
@@ -226,8 +226,8 @@ impl Remote for TPassClient {
     async fn search_many(
         &self,
         search: SearchBy,
-        _include_img: bool,
-    ) -> FRResult<Vec<SearchManyResult>> {
+        include_img: bool,
+    ) -> FRResult<Vec<SearchResult>> {
         if let SearchBy::ExtIDS(ccodes) = search {
             let mut ncode = vec![];
             for idk in ccodes {
@@ -237,15 +237,38 @@ impl Remote for TPassClient {
             }
 
             let res = self.get_clients_by_ccode(ncode).await?;
-            Ok(res
-                .into_iter()
-                .filter_map(|details| {
-                    details
-                        .get("ccode")
-                        .and_then(Value::as_u64)
-                        .map(|ccode| SearchManyResult { ccode, details })
-                })
-                .collect())
+
+            let mut out = Vec::with_capacity(res.len());
+            for details in res {
+                let ccode = details
+                    .get("ccode")
+                    .and_then(Value::as_u64)
+                    .map(|code| code.to_string());
+
+                let image = if include_img {
+                    if let Some(url) = details.get("imgUrl").and_then(Value::as_str) {
+                        match self.download_tpass_image(url).await {
+                            Ok(image_bytes) => Some(Image::Binary(image_bytes)),
+                            Err(err) => {
+                                warn!("search_many image download failed for '{}': {}", url, err);
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                out.push(SearchResult {
+                    image,
+                    id: ccode,
+                    details: Some(details),
+                });
+            }
+
+            Ok(out)
         } else {
             return Err(FRError::with_code(
                 2000,

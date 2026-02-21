@@ -247,7 +247,15 @@ impl FRService {
 
         let details_by_ccode: HashMap<u64, Value> = remote_matches
             .into_iter()
-            .map(|item| (item.ccode, item.details))
+            .filter_map(|item| {
+                let details = item.details?;
+                let ccode = item
+                    .id
+                    .as_deref()
+                    .and_then(|id| id.trim().parse::<u64>().ok())
+                    .or_else(|| details.get("ccode").and_then(Value::as_u64))?;
+                Some((ccode, details))
+            })
             .collect();
 
         if details_by_ccode.is_empty() {
