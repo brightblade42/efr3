@@ -1,13 +1,9 @@
-use bytes::Bytes;
-use libpv::identity_grpc::PVIdentityGrpcApi;
+use libpv::identity_grpc::{identity, PVIdentityGrpcApi};
 use libpv::proc_grpc::{
     health::{
         health_check_response::ServingStatus, health_client::HealthClient, HealthCheckRequest,
     },
-    PVProcGrpcApi,
-};
-use libpv::types::{
-    AddFaceRequest, CreateIdentitiesRequest, DeleteIdentitiesRequest, Embedding, GetFacesRequest,
+    processor, PVProcGrpcApi,
 };
 use std::env;
 use std::fs;
@@ -73,14 +69,18 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     let second = templates.get(1).cloned().unwrap_or_else(|| first.clone());
 
     let external_id = format!("grpc-smoke-{}", unix_millis());
-    let create_req = CreateIdentitiesRequest {
-        embeddings: vec![Embedding {
+    let create_req = identity::CreateIdentitiesRequest {
+        group_ids: vec![],
+        embeddings: vec![identity::Embedding {
             embedding: first.embedding.clone(),
         }],
         threshold: 0.0,
+        model: String::new(),
         qualities: vec![first.quality],
-        group_ids: None,
-        external_ids: Some(vec![external_id.clone()]),
+        external_ids: vec![external_id.clone()],
+        scaling_factor: 2.0,
+        buckets_limit: 32,
+        options: vec![],
     };
 
     let created = ident_api.create_identities(create_req).await?;
@@ -104,16 +104,20 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
 
     let mut issues: Vec<String> = Vec::new();
 
-    let add_req = AddFaceRequest {
+    let add_req = identity::AddFacesRequest {
         identity_id: created_id.clone(),
-        embeddings: vec![Embedding {
+        embeddings: vec![identity::Embedding {
             embedding: second.embedding.clone(),
         }],
         threshold: 0.0,
+        model: String::new(),
         qualities: vec![second.quality],
+        scaling_factor: 2.0,
+        buckets_limit: 32,
+        flush: Some(true),
     };
 
-    match ident_api.add_face(add_req).await {
+    match ident_api.add_faces(add_req).await {
         Ok(add_resp) => {
             println!(
                 "added {} face(s) to {} using {}",
@@ -134,8 +138,10 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     }
 
     match ident_api
-        .get_faces(GetFacesRequest {
-            fr_id: created_id.clone(),
+        .get_faces(identity::GetFacesRequest {
+            identity_id: created_id.clone(),
+            page_token: String::new(),
+            page_size: 100,
         })
         .await
     {
@@ -161,9 +167,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     }
 
     match ident_api
-        .lookup_single(Embedding {
-            embedding: first.embedding.clone(),
-        })
+        .lookup(single_lookup_request(first.embedding.clone()))
         .await
     {
         Ok(lookup_resp) => {
@@ -182,15 +186,13 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
         Err(err) => issues.push(format!("lookup_single failed: {}", err)),
     }
 
-    let delete_results = ident_api
-        .delete_identities(Some(DeleteIdentitiesRequest {
+    let delete_response = ident_api
+        .delete_identities(identity::DeleteIdentitiesRequest {
             ids: vec![created_id.clone()],
-            external_ids: None,
-        }))
+            external_ids: vec![],
+        })
         .await?;
-    let deleted = delete_results
-        .into_iter()
-        .any(|result| matches!(result, Ok(id) if id == created_id));
+    let deleted = delete_response.rows_affected > 0;
 
     println!("cleanup delete identity {} -> {}", created_id, deleted);
     if !deleted {
@@ -215,7 +217,10 @@ async fn collect_templates(
 
     for image_path in image_paths {
         let bytes = fs::read(image_path)?;
-        let response = match proc_api.process_image(Bytes::from(bytes), None, true).await {
+        let response = match proc_api
+            .process_full_image(default_process_request(bytes))
+            .await
+        {
             Ok(response) => response,
             Err(err)
                 if err.code == 400
@@ -306,22 +311,57 @@ async fn templates_from_proc_or_synthetic() -> Vec<FaceTemplate> {
     vec![synthetic_template(1.0), synthetic_template(2.0)]
 }
 
-fn extract_face_template(response: libpv::types::ProcessImageResponse) -> Option<(Vec<f32>, f32)> {
-    let faces = response.faces?;
+fn extract_face_template(response: processor::ProcessFullImageResponse) -> Option<(Vec<f32>, f32)> {
+    let faces = response.faces;
     if faces.is_empty() {
         return None;
     }
 
     let candidate_index = response
         .most_prominent_face_idx
-        .filter(|idx| *idx >= 0)
-        .map(|idx| idx as usize)
+        .try_into()
+        .ok()
         .unwrap_or(0);
 
     let face = faces.get(candidate_index).or_else(|| faces.first())?;
-    let embedding = face.embedding.clone()?;
-    let quality = face.quality.unwrap_or(0.0);
+    if face.embedding.is_empty() {
+        return None;
+    }
+
+    let embedding = face.embedding.clone();
+    let quality = face.quality;
     Some((embedding, quality))
+}
+
+fn single_lookup_request(embedding: Vec<f32>) -> identity::LookupRequest {
+    identity::LookupRequest {
+        group_ids: vec![],
+        embeddings: vec![identity::Embedding { embedding }],
+        limit: 1,
+        model: String::new(),
+        scaling_factor: 2.0,
+        buckets_limit: 32,
+    }
+}
+
+fn default_process_request(image: Vec<u8>) -> processor::ProcessFullImageRequest {
+    use processor::process_full_image_request::Options;
+
+    processor::ProcessFullImageRequest {
+        image,
+        outputs: vec![
+            Options::BoundingBox as i32,
+            Options::Embedding as i32,
+            Options::Quality as i32,
+            Options::Mask as i32,
+        ],
+        find_most_prominent_face: true,
+        scoring_mode: processor::ScoringMode::Auto as i32,
+        image_source: processor::ImageSource::Unknown as i32,
+        liveness_validness_parameters: None,
+        ages_v2_validness_parameters: None,
+        deepfake_validness_parameters: None,
+    }
 }
 
 fn required_env(name: &str) -> Result<String, io::Error> {

@@ -21,10 +21,7 @@ pub async fn search_tpass(
     Json(search_req): Json<SearchTpassRequest>,
 ) -> WResult<Json<Value>> {
     let verbose = search_req.verbose;
-    let res = app_state
-        .tpass_client
-        .search_tpass_verbose(search_req.search)
-        .await;
+    let res = app_state.tpass_client.search_tpass(search_req.search).await;
     match res {
         Ok(tpr) => {
             if tpr.meta.failed > 0 {

@@ -1,5 +1,4 @@
-use bytes::Bytes;
-use libpv::proc_grpc::PVProcGrpcApi;
+use libpv::proc_grpc::{health::health_check_response::ServingStatus, processor, PVProcGrpcApi};
 use std::env;
 use std::fs;
 use std::io;
@@ -17,11 +16,13 @@ async fn live_proc_grpc_health_check() -> TestResult {
     let api = PVProcGrpcApi::new(endpoint);
 
     let health = api.health_check().await?;
-    println!("health status: {}", health.status);
+    let status = ServingStatus::try_from(health.status).unwrap_or(ServingStatus::Unknown);
+    println!("health status: {:?}", status);
 
-    assert!(
-        !health.status.is_empty(),
-        "health status should not be empty"
+    assert_ne!(
+        status,
+        ServingStatus::Unknown,
+        "health status should not be UNKNOWN"
     );
     Ok(())
 }
@@ -45,7 +46,7 @@ async fn live_proc_grpc_process_images() -> TestResult {
 
     for image_path in image_paths {
         let bytes = fs::read(&image_path)?;
-        let response = match api.process_image(Bytes::from(bytes), None, true).await {
+        let response = match api.process_full_image(default_process_request(bytes)).await {
             Ok(response) => response,
             Err(err)
                 if err.code == 400
@@ -64,17 +65,15 @@ async fn live_proc_grpc_process_images() -> TestResult {
             Err(err) => return Err(err.into()),
         };
 
-        let face_count = response.faces.as_ref().map_or(0usize, Vec::len);
-        if let Some(idx) = response.most_prominent_face_idx {
-            if face_count > 0 {
-                assert!(
-                    (idx as usize) < face_count,
-                    "most prominent face index {} out of bounds {} for {}",
-                    idx,
-                    face_count,
-                    image_path.display()
-                );
-            }
+        let face_count = response.faces.len();
+        if face_count > 0 {
+            assert!(
+                (response.most_prominent_face_idx as usize) < face_count,
+                "most prominent face index {} out of bounds {} for {}",
+                response.most_prominent_face_idx,
+                face_count,
+                image_path.display()
+            );
         }
 
         println!(
@@ -112,7 +111,10 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
 
     for image_path in image_paths {
         let bytes = fs::read(&image_path)?;
-        let response = match api.process_image_liveness(Bytes::from(bytes)).await {
+        let response = match api
+            .process_full_image(liveness_process_request(bytes))
+            .await
+        {
             Ok(response) => response,
             Err(err)
                 if err.code == 400
@@ -130,7 +132,7 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
             Err(err) => return Err(err.into()),
         };
 
-        let faces = response.faces.unwrap_or_default();
+        let faces = response.faces;
         if faces.is_empty() {
             println!("skipping {} -> no faces detected", image_path.display());
             continue;
@@ -138,8 +140,8 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
 
         let idx = response
             .most_prominent_face_idx
-            .filter(|idx| *idx >= 0)
-            .map(|idx| idx as usize)
+            .try_into()
+            .ok()
             .unwrap_or(0);
         let face = faces.get(idx).or_else(|| faces.first()).ok_or_else(|| {
             io::Error::new(
@@ -170,7 +172,15 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
             image_path.display(),
             liveness.liveness_probability,
             validness.is_valid,
-            validness.feedback
+            validness
+                .feedback
+                .iter()
+                .map(|code| {
+                    processor::validness::Feedback::try_from(*code)
+                        .unwrap_or(processor::validness::Feedback::Unknown)
+                        .as_str_name()
+                })
+                .collect::<Vec<_>>()
         );
 
         successful_checks += 1;
@@ -181,6 +191,60 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
         "expected at least one successful liveness check"
     );
     Ok(())
+}
+
+fn default_process_request(image: Vec<u8>) -> processor::ProcessFullImageRequest {
+    use processor::process_full_image_request::Options;
+
+    processor::ProcessFullImageRequest {
+        image,
+        outputs: vec![
+            Options::BoundingBox as i32,
+            Options::Embedding as i32,
+            Options::Quality as i32,
+            Options::Mask as i32,
+        ],
+        find_most_prominent_face: true,
+        scoring_mode: processor::ScoringMode::Auto as i32,
+        image_source: processor::ImageSource::Unknown as i32,
+        liveness_validness_parameters: None,
+        ages_v2_validness_parameters: None,
+        deepfake_validness_parameters: None,
+    }
+}
+
+fn liveness_process_request(image: Vec<u8>) -> processor::ProcessFullImageRequest {
+    use processor::process_full_image_request::Options;
+
+    let mut params = processor::process_full_image_request::LivenessValidnessParameters::default();
+    params.min_face_sharpness = Some(0.15);
+    params.min_face_quality = Some(0.5);
+    params.min_face_acceptability = Some(0.15);
+    params.min_face_frontality = Some(70);
+    params.max_face_mask_probability = Some(0.5);
+    params.image_illumination_control = Some(50);
+    params.max_face_size_pct = Some(0.72);
+    params.image_boundary_width_pct = Some(0.8);
+    params.image_boundary_height_pct = Some(0.8);
+    params.min_face_size = Some(100);
+    params.max_face_roll_angle = Some(45);
+    params.fail_fast = Some(true);
+
+    processor::ProcessFullImageRequest {
+        image,
+        outputs: vec![
+            Options::BoundingBox as i32,
+            Options::Quality as i32,
+            Options::Liveness as i32,
+            Options::LivenessValidness as i32,
+        ],
+        find_most_prominent_face: true,
+        scoring_mode: processor::ScoringMode::Auto as i32,
+        image_source: processor::ImageSource::Webcam as i32,
+        liveness_validness_parameters: Some(params),
+        ages_v2_validness_parameters: None,
+        deepfake_validness_parameters: None,
+    }
 }
 
 fn required_env(name: &str) -> Result<String, io::Error> {

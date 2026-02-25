@@ -1,6 +1,6 @@
 pub mod backend;
 pub mod remote;
-pub mod v2;
+pub mod repo;
 use bytes::Bytes;
 use libpv::errors::PVApiError;
 use libtpass::errors::TPassError;
@@ -136,6 +136,63 @@ pub enum SearchBy {
     //Partial(SearchRequest),
     ExtID(IDKind),
     ExtIDS(Vec<IDKind>),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentCreateResult {
+    pub fr_id: String,
+    pub ext_id: u64,
+    pub ext_id_str: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentDeleteResult {
+    pub fr_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentRosterItem {
+    pub fr_id: Option<String>,
+    pub ext_id: u64,
+    pub ext_id_str: String,
+    pub details: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResetEnrollmentsBackendResult {
+    pub msg: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResetEnrollmentsResult {
+    pub msg: String,
+    pub local_reset: repo::EnrollmentResetRecord,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrollmentFaceInfo {
+    pub id: String,
+    pub identity_id: String,
+    pub created_at: String,
+    pub model: String,
+    pub quality: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AddFaceResult {
+    pub faces: Vec<EnrollmentFaceInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeleteFaceResult {
+    pub rows_affected: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GetFaceInfoResult {
+    pub faces: Vec<EnrollmentFaceInfo>,
+    pub next_page_token: String,
+    pub total_size: i32,
 }
 
 //recognition types

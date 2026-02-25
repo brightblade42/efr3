@@ -2,7 +2,7 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, EnrollData, EnrollDetails};
+use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, EnrollmentCreateResult};
 use libtpass::types::EditProfileRequest;
 use serde_json::Value;
 
@@ -27,7 +27,7 @@ pub async fn edit_profile(
 pub async fn create_profile(
     State(app_state): State<AppState>,
     multipart: Multipart,
-) -> WResult<Json<Value>> {
+) -> WResult<Json<EnrollmentCreateResult>> {
     let profile_data = extractors::extract_new_profile_req(multipart).await?;
 
     let np_resp = app_state

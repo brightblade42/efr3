@@ -7,9 +7,8 @@ use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
 use super::{RegistrationPair, SearchResult};
-
 impl Remote for TPassClient {
-    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<Value> {
+    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
         //TODO: reconstruct enrollment from old TPass functions.
         let ccode = reg_pair.ext_id.parse::<u64>().map_err(|e| {
             FRError::with_details(
@@ -32,12 +31,12 @@ impl Remote for TPassClient {
             ));
         }
 
-        Ok(res) //ok is enough to indicate success.
+        Ok(()) //ok is enough to indicate success.
     }
 
-    async fn unregister_enrollment(&self) -> FRResult<Value> {
+    async fn unregister_enrollment(&self) -> FRResult<()> {
         warn!("UN-Registering an identity! TBI");
-        Ok(json!({"msg": "dummy message. Tpass un-register doesn't exist "}))
+        Ok(())
     }
 
     //NOTE: we only want single results. but a name search is squirelly.
@@ -145,19 +144,10 @@ impl Remote for TPassClient {
             } => {
                 //do a name search
                 let full_name = format!("{},{}", last_name, first_name);
-
-                let sr = self.search_by_name(&full_name).await;
-                match sr {
-                    Err(er) => {
-                        info!("holy moly");
-                        info!("{}", er);
-                    }
-                    _ => info!("goo stuff"),
-                }
-
+                //TODO: what are the conditions under which we would need to do a name search rather than an ext_id (ccode)
+                //search.
                 let sr = match self.search_by_name(&full_name).await?.first() {
                     Some(item) => {
-                        info!("HELOO SOME!!!!");
                         let x = item["imgUrl"].as_str().ok_or_else(|| {
                             FRError::with_code(1002, "name search returned profile without imgUrl")
                         })?;
@@ -179,16 +169,8 @@ impl Remote for TPassClient {
             SearchBy::ExtID(IDKind::Num(ccode)) => {
                 let sr = match self.get_clients_by_ccode(vec![ccode]).await?.first() {
                     Some(item) => {
-                        let x = item["imgUrl"].as_str();
-                        if x.is_none() {
-                            return Err(FRError::with_code(1002, &format!("client with ccode {} doesn't exist or has no imgUrl. can't enroll without an available image", ccode)));
-                        }
-
-                        let x = x.ok_or_else(|| {
-                            FRError::with_code(
-                                1002,
-                                "client with ccode has no imgUrl. can't enroll",
-                            )
+                        let x = item["imgUrl"].as_str().ok_or_else(|| {
+                            FRError::with_code(1002, &format!("client with ccode {} doesn't exist or has no imgUrl. can't enroll without an available image", ccode))
                         })?;
 
                         url = Some(x.to_string());
@@ -232,7 +214,11 @@ impl Remote for TPassClient {
     }
 
     ///search tpass for multiple clients with a batch of ccodes, obviously.
-    async fn search_many(&self, search: SearchBy, _include_img: bool) -> FRResult<Vec<Value>> {
+    async fn search_many(
+        &self,
+        search: SearchBy,
+        include_img: bool,
+    ) -> FRResult<Vec<SearchResult>> {
         if let SearchBy::ExtIDS(ccodes) = search {
             let mut ncode = vec![];
             for idk in ccodes {
@@ -243,7 +229,37 @@ impl Remote for TPassClient {
 
             let res = self.get_clients_by_ccode(ncode).await?;
 
-            Ok(res)
+            let mut out = Vec::with_capacity(res.len());
+            for details in res {
+                let ccode = details
+                    .get("ccode")
+                    .and_then(Value::as_u64)
+                    .map(|code| code.to_string());
+
+                let image = if include_img {
+                    if let Some(url) = details.get("imgUrl").and_then(Value::as_str) {
+                        match self.download_tpass_image(url).await {
+                            Ok(image_bytes) => Some(Image::Binary(image_bytes)),
+                            Err(err) => {
+                                warn!("search_many image download failed for '{}': {}", url, err);
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                out.push(SearchResult {
+                    image,
+                    id: ccode,
+                    details: Some(details),
+                });
+            }
+
+            Ok(out)
         } else {
             return Err(FRError::with_code(
                 2000,

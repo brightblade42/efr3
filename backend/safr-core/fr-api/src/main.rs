@@ -29,7 +29,7 @@ use crate::errors::AppError;
 use crate::fr_service::FRService;
 use crate::runtime::{FREngine, RemoteRuntime};
 use libfr::backend::MatchConfig;
-use libfr::v2::adapters::fr_repo_sqlx::SqlxFrRepository;
+use libfr::repo::SqlxFrRepository;
 
 use libtpass::api::TPassClient;
 
@@ -109,71 +109,46 @@ impl Config {
 
 fn api_v2_routes() -> Router<AppState> {
     Router::new()
+        .route("/enrollment/create", post(enrollment_handlers::create_enrollment))
+        //TODO: should the replace the get_enrollment_roster?
+        .route("/enrollment/search", post(enrollment_handlers::search_enrollment))
+        .route("/enrollment/delete", post(enrollment_handlers::delete_enrollment))
+        .route("/enrollment/add-face", post(enrollment_handlers::add_face))
+        .route("/enrollment/delete-face", post(enrollment_handlers::delete_face))
+        .route("/get-identity", post(enrollment_handlers::get_face_info))
+        //PROFILE interacts with REMOTE
+        .route("/create-profile", post(profile_handlers::create_profile))
+        .route("/edit-profile", post(profile_handlers::edit_profile))
+        .route("/send-alert", post(tpass_handlers::send_fr_alert))
+        .route("/mark-attendance", post(attendance_handlers::mark_attendance))
+        //NOTE: validate image, does liveness and includes quality
+        .route("/validate-image", post(recognition_handlers::liveness_check))
+        //just the quality. validate is a more verbose version
+        .route("/quality-check", post(recognition_handlers::quality_check))
+        .route("/detect", post(recognition_handlers::detect_faces)) //detect, bbox.
+        .route("/recognize", post(recognition_handlers::recognize))
+        //a combo on recognition and notifying remote of building entrance / exit.
+        //DELETE
+        //NOTE: this is a very dangerous function. maybe we block it.
+        .route("/enrollment/reset", post(enrollment_handlers::reset_enrollments))
+        //TODO: implement or discard
+        .route("/enrollment/errlog", post(enrollment_handlers::get_enrollment_errlog))
         .route(
             "/enrollment/metadata",
             get(enrollment_handlers::get_enrollment_metadata)
                 .post(enrollment_handlers::create_collection),
         )
-        .route(
-            "/enrollment/roster",
-            get(enrollment_handlers::get_enrollment_roster),
-        )
-        .route(
-            "/enrollment/create",
-            post(enrollment_handlers::create_enrollment),
-        )
-        .route(
-            "/enrollment/search",
-            post(enrollment_handlers::search_enrollment),
-        )
-        .route(
-            "/enrollment/delete",
-            post(enrollment_handlers::delete_enrollment),
-        )
-        //NOTE: this is a very dangerous function. maybe we block it.
-        .route(
-            "/enrollment/reset",
-            post(enrollment_handlers::reset_enrollments),
-        )
-        .route(
-            "/enrollment/errlog",
-            post(enrollment_handlers::get_enrollment_errlog),
-        )
-        .route("/enrollment/add-face", post(enrollment_handlers::add_face))
-        .route(
-            "/enrollment/delete-face",
-            post(enrollment_handlers::delete_face),
-        )
-        .route("/get-identity", post(enrollment_handlers::get_face_info))
-        .route("/create-profile", post(profile_handlers::create_profile))
-        .route("/edit-profile", post(profile_handlers::edit_profile))
-        .route("/send-alert", post(tpass_handlers::send_fr_alert))
-        .route("/detect", post(recognition_handlers::detect_image)) //detect, bbox.
-        //NOTE: detect_spoof was replaced with validate-image
-        .route(
-            "/validate-image",
-            post(recognition_handlers::liveness_check),
-        )
-        //.route("/detect_embed", post(detect_image_embed)) //detect, bbox + embeddngs
-        .route("/recognize", post(recognition_handlers::recognize))
-        //a combo on recognition and notifying remote of building entrance / exit.
-        .route(
-            "/mark-attendance",
-            post(attendance_handlers::mark_attendance),
-        )
+        .route("/enrollment/roster", get(enrollment_handlers::get_enrollment_roster))
 }
 
 fn tpass_routes() -> Router<AppState> {
     Router::new()
         .route("/get-companies", get(tpass_handlers::get_tpass_companies))
-        .route(
-            "/get-client-types",
-            get(tpass_handlers::get_tpass_client_types),
-        )
-        .route(
-            "/get-status-types",
-            get(tpass_handlers::get_tpass_status_types),
-        )
+        .route("/get-client-types", get(tpass_handlers::get_tpass_client_types))
+        .route("/get-status-types", get(tpass_handlers::get_tpass_status_types))
+        //TODO: is this  something we use in production or was this just for testing?
+        //might be better to elimate for security reasons. A tpass passthrough function is probably
+        // not the best idea.
         .route("/search", post(tpass_handlers::search_tpass))
         .fallback(fallback1)
 }
@@ -258,19 +233,16 @@ async fn main() {
         config: config.clone(), //some tpass specific calls
     };
 
-    let app = Router::new()
-        .nest("/fr/v2", api_v2_routes())
-        .nest("/tpass", tpass_routes())
-        //NOTE: i think we moved site serving out of here and up to the rev proxy
-        .nest_service("/_app", ServeDir::new("./app/_app"))
-        .layer(
-            ServiceBuilder::new().layer(
-                CorsLayer::new()
-                    .allow_methods([Method::GET, Method::POST])
-                    .allow_origin(Any),
-            ),
-        )
-        .with_state(app_state);
+    let app =
+        Router::new()
+            .nest("/fr/v2", api_v2_routes())
+            .nest("/tpass", tpass_routes())
+            //NOTE: i think we moved site serving out of here and up to the rev proxy
+            .nest_service("/_app", ServeDir::new("./app/_app"))
+            .layer(ServiceBuilder::new().layer(
+                CorsLayer::new().allow_methods([Method::GET, Method::POST]).allow_origin(Any),
+            ))
+            .with_state(app_state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     info!("listening on {}", addr);
@@ -338,12 +310,7 @@ mod tests {
         let fr_repo = Arc::new(SqlxFrRepository::new(db_pool));
         let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote, fr_repo.clone()));
 
-        AppState {
-            fr_service,
-            fr_repo,
-            tpass_client,
-            config: Config::new(),
-        }
+        AppState { fr_service, fr_repo, tpass_client, config: Config::new() }
     }
 
     fn test_app() -> Router {
@@ -366,10 +333,7 @@ mod tests {
         Request::builder()
             .method("POST")
             .uri(uri)
-            .header(
-                "content-type",
-                format!("multipart/form-data; boundary={}", boundary),
-            )
+            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
             .body(Body::from(body))
             .expect("multipart request")
     }
@@ -401,18 +365,13 @@ mod tests {
         Request::builder()
             .method("POST")
             .uri(uri)
-            .header(
-                "content-type",
-                format!("multipart/form-data; boundary={}", boundary),
-            )
+            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
             .body(Body::from(body))
             .expect("multipart request")
     }
 
     async fn response_json(resp: axum::response::Response) -> Value {
-        let bytes = to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .expect("response body bytes");
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.expect("response body bytes");
         serde_json::from_slice(&bytes).expect("json response")
     }
 
@@ -445,9 +404,7 @@ mod tests {
         let addr = listener.local_addr().expect("mock tpass local addr");
 
         let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("mock tpass server should run");
+            axum::serve(listener, app).await.expect("mock tpass server should run");
         });
 
         (format!("http://{}/", addr), handle)
@@ -517,10 +474,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
 
         let payload = response_json(resp).await;
-        let faces = payload
-            .get("faces")
-            .and_then(Value::as_array)
-            .expect("faces array");
+        let faces = payload.get("faces").and_then(Value::as_array).expect("faces array");
         assert_eq!(faces.len(), 1);
         assert_eq!(faces[0]["id"], "mock-face-id");
     }
@@ -532,9 +486,7 @@ mod tests {
             .method("POST")
             .uri("/fr/v2/enrollment/delete-face")
             .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"fr_id":"mock-fr-id","face_id":"mock-face-id"}"#,
-            ))
+            .body(Body::from(r#"{"fr_id":"mock-fr-id","face_id":"mock-face-id"}"#))
             .expect("request");
 
         let resp = app.oneshot(req).await.expect("response");
@@ -560,10 +512,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
 
         let payload = response_json(resp).await;
-        let faces = payload
-            .get("faces")
-            .and_then(Value::as_array)
-            .expect("faces array");
+        let faces = payload.get("faces").and_then(Value::as_array).expect("faces array");
         assert_eq!(faces.len(), 1);
         assert_eq!(payload["total_size"], 1);
     }

@@ -1,5 +1,6 @@
-use libfr::v2::adapters::fr_repo_sqlx::SqlxFrRepository;
-use libfr::v2::domain::{ExternalId, ImageRecord, ProfileRecord, RegistrationErrorRecord};
+use libfr::repo::{
+    ExternalId, ImageRecord, ProfileRecord, RegistrationErrorRecord, SqlxFrRepository,
+};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
