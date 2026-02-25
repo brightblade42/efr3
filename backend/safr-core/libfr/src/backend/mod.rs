@@ -44,4 +44,6 @@ pub struct MatchConfig {
     pub top_n: i32,
     pub min_dupe_match: f32,
     pub top_n_min_match: f32,
+    pub min_quality: f32,
+    pub min_acceptability: f32,
 }

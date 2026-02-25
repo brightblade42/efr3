@@ -46,18 +46,10 @@ impl Remote for TPassClient {
     ///and how much data we need to get.
     async fn search(&self, enroll_data: &EnrollData) -> FRResult<Vec<SearchResult>> {
         match enroll_data {
-            EnrollData {
-                details: Some(det), ..
-            } => {
+            EnrollData { details: Some(det), .. } => {
                 match det {
-                    EnrollDetails::Min {
-                        first_name,
-                        last_name,
-                    } => {
-                        info!(
-                            "received minimum:  first {} and last {}",
-                            first_name, last_name
-                        );
+                    EnrollDetails::Min { first_name, last_name, .. } => {
+                        info!("received minimum:  first {} and last {}", first_name, last_name);
                         info!("do a name search to get tpass details, ccode especially");
 
                         let searcher = SearchBy::Name {
@@ -69,11 +61,8 @@ impl Remote for TPassClient {
                         let res = self.search_one(searcher, include_image).await?;
 
                         //we really want the whole SearchResult to be None
-                        let sr = res.unwrap_or(SearchResult {
-                            image: None,
-                            details: None,
-                            id: None,
-                        });
+                        let sr =
+                            res.unwrap_or(SearchResult { image: None, details: None, id: None });
 
                         info!("searh results here");
                         info!("{:?}", sr);
@@ -138,10 +127,7 @@ impl Remote for TPassClient {
         let mut url: Option<String> = None;
 
         let sr = match search {
-            SearchBy::Name {
-                first_name,
-                last_name,
-            } => {
+            SearchBy::Name { first_name, last_name } => {
                 //do a name search
                 let full_name = format!("{},{}", last_name, first_name);
                 //TODO: what are the conditions under which we would need to do a name search rather than an ext_id (ccode)
@@ -231,10 +217,8 @@ impl Remote for TPassClient {
 
             let mut out = Vec::with_capacity(res.len());
             for details in res {
-                let ccode = details
-                    .get("ccode")
-                    .and_then(Value::as_u64)
-                    .map(|code| code.to_string());
+                let ccode =
+                    details.get("ccode").and_then(Value::as_u64).map(|code| code.to_string());
 
                 let image = if include_img {
                     if let Some(url) = details.get("imgUrl").and_then(Value::as_str) {
@@ -252,11 +236,7 @@ impl Remote for TPassClient {
                     None
                 };
 
-                out.push(SearchResult {
-                    image,
-                    id: ccode,
-                    details: Some(details),
-                });
+                out.push(SearchResult { image, id: ccode, details: Some(details) });
             }
 
             Ok(out)

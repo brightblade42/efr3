@@ -28,19 +28,11 @@ impl FRError {
         }
     }
     pub fn with_code(code: u16, message: &str) -> Self {
-        Self {
-            code,
-            message: message.to_string(),
-            details: None,
-        }
+        Self { code, message: message.to_string(), details: None }
     }
 
     pub fn with_details(code: u16, message: &str, details: Value) -> Self {
-        Self {
-            code,
-            message: message.to_string(),
-            details: Some(details),
-        }
+        Self { code, message: message.to_string(), details: Some(details) }
     }
 }
 
@@ -52,31 +44,19 @@ impl Default for FRError {
 
 impl From<PVApiError> for FRError {
     fn from(pv: PVApiError) -> Self {
-        Self {
-            code: pv.code,
-            message: pv.message,
-            details: None,
-        }
+        Self { code: pv.code, message: pv.message, details: None }
     }
 }
 
 impl From<&PVApiError> for FRError {
     fn from(pv: &PVApiError) -> Self {
-        Self {
-            code: pv.code,
-            message: pv.message.clone(),
-            details: None,
-        }
+        Self { code: pv.code, message: pv.message.clone(), details: None }
     }
 }
 
 impl From<TPassError> for FRError {
     fn from(e: TPassError) -> Self {
-        Self {
-            code: 2000,
-            message: e.to_string(),
-            details: None,
-        }
+        Self { code: 2000, message: e.to_string(), details: None }
     }
 }
 impl From<SqlxError> for FRError {
@@ -91,11 +71,7 @@ impl From<SqlxError> for FRError {
 
 impl From<serde_json::Error> for FRError {
     fn from(se: serde_json::Error) -> Self {
-        Self {
-            code: 3000,
-            message: se.to_string(),
-            details: None,
-        }
+        Self { code: 3000, message: se.to_string(), details: None }
     }
 }
 
@@ -108,10 +84,7 @@ pub struct EnrollData {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "kind")] //i like kind more than type. type gets in the way.
 pub enum EnrollDetails {
-    Min {
-        first_name: String,
-        last_name: String,
-    }, //only a name and local only
+    Min { first_name: String, last_name: String, ext_id: Option<String> }, //only a name and local only
     TPass(Value), //TODO: this will be what NewProfileRequest contains, the tpass minimum.
 }
 
@@ -129,10 +102,7 @@ pub enum IDKind {
 #[derive(Debug)]
 pub enum SearchBy {
     //Name { first_name: String, last_name: String },
-    Name {
-        first_name: String,
-        last_name: String,
-    },
+    Name { first_name: String, last_name: String },
     //Partial(SearchRequest),
     ExtID(IDKind),
     ExtIDS(Vec<IDKind>),
@@ -202,6 +172,8 @@ pub struct PossibleMatch {
     pub fr_id: String,
     #[serde(alias = "confidence")]
     pub score: f32,
+    #[serde(default, alias = "confidence_pct")]
+    pub score_pct: f32,
     pub ext_id: String,
     pub details: Option<Value>,
 }
@@ -211,9 +183,14 @@ impl PossibleMatch {
         Self {
             fr_id,
             score,
+            score_pct: utils::score_to_percentage(score),
             ext_id: String::new(),
             details: None,
         }
+    }
+
+    pub fn refresh_score_percentage(&mut self) {
+        self.score_pct = utils::score_to_percentage(self.score);
     }
 }
 
@@ -271,11 +248,21 @@ pub mod utils {
         let y = 10i32.pow(decimals) as f32;
         (x * y).round() / y
     }
+
+    pub fn score_to_percentage(score: f32) -> f32 {
+        roundf32(score * 100.0, 2)
+    }
+
+    pub fn normalize_score_threshold(threshold: f32) -> f32 {
+        let raw = if threshold > 1.0 { threshold / 100.0 } else { threshold };
+
+        raw.clamp(0.0, 1.0)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::PossibleMatch;
+    use super::{utils, PossibleMatch};
     use serde_json::json;
 
     #[test]
@@ -283,12 +270,14 @@ mod tests {
         let possible_match = PossibleMatch {
             fr_id: "i_test".to_string(),
             score: 0.99,
+            score_pct: 99.0,
             ext_id: "123".to_string(),
             details: None,
         };
 
         let value = serde_json::to_value(possible_match).expect("serialize possible match");
         assert!(value.get("score").is_some());
+        assert_eq!(value.get("score_pct").and_then(|value| value.as_f64()), Some(99.0));
         assert!(value.get("confidence").is_none());
     }
 
@@ -301,8 +290,21 @@ mod tests {
             "details": null
         });
 
-        let possible_match: PossibleMatch =
+        let mut possible_match: PossibleMatch =
             serde_json::from_value(value).expect("deserialize possible match from confidence");
         assert!((possible_match.score - 0.75).abs() < f32::EPSILON);
+        possible_match.refresh_score_percentage();
+        assert_eq!(possible_match.score_pct, 75.0);
+    }
+
+    #[test]
+    fn score_to_percentage_is_rounded() {
+        assert_eq!(utils::score_to_percentage(0.98765), 98.77);
+    }
+
+    #[test]
+    fn normalize_score_threshold_accepts_ratio_and_percent() {
+        assert_eq!(utils::normalize_score_threshold(0.98), 0.98);
+        assert_eq!(utils::normalize_score_threshold(98.0), 0.98);
     }
 }

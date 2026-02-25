@@ -4,14 +4,14 @@ use std::sync::Arc;
 use bytes::Bytes;
 use libfr::{
     backend::{FRBackend, MatchConfig},
-    remote::{RegistrationPair, Remote},
+    remote::Remote,
     repo::{
         EnrollmentMetadataRecord, ExternalId, ImageRecord, ProfileRecord, RegistrationErrorRecord,
         SqlxFrRepository,
     },
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
     EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face,
-    GetFaceInfoResult, IDKind, Image, ResetEnrollmentsResult, SearchBy,
+    GetFaceInfoResult, IDKind, ResetEnrollmentsResult, SearchBy,
 };
 use serde_json::{json, Value};
 use tracing::warn;
@@ -36,88 +36,81 @@ impl FRService {
 
     pub async fn create_enrollment(
         &self,
-        mut enroll_data: EnrollData,
+        enroll_data: EnrollData,
         config: MatchConfig,
     ) -> FRResult<EnrollmentCreateResult> {
-        let remote_match = self.remote.search(&enroll_data).await?.into_iter().next();
+        let image = enroll_data.image.clone().ok_or_else(|| {
+            FRError::with_code(1010, "An image is required for enrollment but was not found")
+        })?;
 
-        if enroll_data.image.is_none() {
-            enroll_data.image = match remote_match.as_ref().and_then(|result| result.image.as_ref())
-            {
-                Some(Image::Binary(bin)) => Some(bin.clone()),
-                None => None,
-            };
-        }
+        let details = enroll_data.details.clone().ok_or_else(|| {
+            FRError::with_code(
+                1011,
+                "Enrollment details were not provided or could not be resolved",
+            )
+        })?;
 
-        let candidate_ext_id = remote_match
-            .as_ref()
-            .and_then(|result| result.id.clone())
-            .or_else(|| enroll_data.details.as_ref().and_then(Self::extract_ext_id_from_details));
-
-        let details_snapshot = enroll_data.details.clone();
-        let image_snapshot = enroll_data.image.clone();
-
-        let mut response = self
-            .fr_engine
-            .create_enrollment(enroll_data, config, candidate_ext_id.clone())
-            .await?;
-
-        let fr_id = response.fr_id.clone();
-
-        let resolved_ext_id = if !response.ext_id_str.trim().is_empty() {
-            response.ext_id_str.clone()
-        } else if response.ext_id > 0 {
-            response.ext_id.to_string()
-        } else {
-            candidate_ext_id.unwrap_or_default()
-        };
-
-        if resolved_ext_id.trim().is_empty() {
-            return Err(FRError::with_code(
-                1050,
-                "External id was not found. Couldn't register with remote. Partial enrollment",
-            ));
-        }
+        let resolved_ext_id = Self::extract_ext_id_from_details(&details).ok_or_else(|| {
+            FRError::with_code(1050, "An external id is required for create enrollment")
+        })?;
 
         let external_id = ExternalId::new(resolved_ext_id.clone()).map_err(|e| {
             FRError::with_details(
                 1052,
-                "Enrollment succeeded but external id could not be normalized",
+                "Enrollment details provided an invalid external id",
                 json!({
-                    "fr_id": fr_id,
                     "ext_id": resolved_ext_id,
                     "error": e.to_string(),
                 }),
             )
         })?;
 
-        response.ext_id_str = external_id.as_str().to_string();
-        response.ext_id = external_id.as_str().parse::<u64>().unwrap_or(0);
-
-        self.persist_profile_and_image(
-            &external_id,
-            &fr_id,
-            details_snapshot.as_ref(),
-            image_snapshot.as_ref(),
+        self.persist_profile_snapshot(&external_id, &details, None).await?;
+        self.append_repo_log(
+            "enrollment_profile_staged",
+            json!({
+                "ext_id": external_id.as_str(),
+            }),
         )
-        .await?;
+        .await;
 
-        if external_id.as_str().parse::<u64>().is_ok() {
-            let reg_pair = RegistrationPair::new(fr_id.clone(), external_id.as_str().to_string());
-            if let Err(err) = self.remote.register_enrollment(&reg_pair).await {
-                self.log_registration_failure(Some(&external_id), Some(&fr_id), &err).await;
+        self.persist_image_snapshot(&external_id, &image, &details, 0.0, 0.0).await?;
+        self.append_repo_log(
+            "enrollment_image_staged",
+            json!({
+                "ext_id": external_id.as_str(),
+                "bytes": image.len(),
+            }),
+        )
+        .await;
+
+        let backend_input = EnrollData { image: Some(image), details: Some(details.clone()) };
+
+        let mut response = match self
+            .fr_engine
+            .create_enrollment(backend_input, config, Some(external_id.as_str().to_string()))
+            .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                self.log_create_enrollment_failure(&external_id, &err).await;
                 return Err(err);
             }
-        } else {
-            self.append_repo_log(
-                "remote_registration_skipped",
-                json!({
-                    "fr_id": fr_id,
-                    "ext_id": external_id.as_str(),
-                }),
-            )
-            .await;
-        }
+        };
+
+        let fr_id = response.fr_id.clone();
+        self.persist_profile_snapshot(&external_id, &details, Some(&fr_id)).await?;
+        self.append_repo_log(
+            "enrollment_identity_created",
+            json!({
+                "ext_id": external_id.as_str(),
+                "fr_id": fr_id,
+            }),
+        )
+        .await;
+
+        response.ext_id_str = external_id.as_str().to_string();
+        response.ext_id = external_id.as_str().parse::<u64>().unwrap_or(0);
 
         Ok(response)
     }
@@ -198,6 +191,12 @@ impl FRService {
 
     pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
         let mut fr_identities = self.fr_engine.recognize(image, config).await?;
+
+        for fr_ident in &mut fr_identities {
+            for possible_match in &mut fr_ident.possible_matches {
+                possible_match.refresh_score_percentage();
+            }
+        }
 
         let ccodes: Vec<u64> = fr_identities
             .iter()
@@ -291,24 +290,23 @@ impl FRService {
         self.fr_engine.log_identity(fr_identity, extra, location).await
     }
 
-    async fn persist_profile_and_image(
+    async fn persist_profile_snapshot(
         &self,
         external_id: &ExternalId,
-        fr_id: &str,
-        details: Option<&EnrollDetails>,
-        image: Option<&Bytes>,
+        details: &EnrollDetails,
+        fr_id: Option<&str>,
     ) -> FRResult<()> {
         let (first_name, last_name, middle_name, image_url, raw_data) =
-            Self::extract_profile_fields(details);
+            Self::extract_profile_fields(Some(details));
 
         let profile = ProfileRecord {
             external_id: external_id.clone(),
             first_name,
             last_name,
             middle_name,
-            image_url: image_url.clone(),
-            raw_data: raw_data.clone(),
-            fr_id: Some(fr_id.to_string()),
+            image_url,
+            raw_data,
+            fr_id: fr_id.map(str::to_string),
         };
 
         if let Err(e) = self.fr_repo.upsert_profile(&profile).await {
@@ -320,49 +318,53 @@ impl FRService {
             self.append_repo_log("profile_upsert_error", details.clone()).await;
             return Err(FRError::with_details(
                 1053,
-                "Enrollment succeeded but eyefr profile persistence failed",
+                "Failed to persist enrollment profile snapshot",
                 details,
             ));
-        }
-
-        if let Some(image_bytes) = image {
-            let image_record = ImageRecord {
-                external_id: external_id.clone(),
-                data: image_bytes.to_vec(),
-                size: Some(image_bytes.len() as f32),
-                url: image_url,
-                quality: 0.0,
-                acceptability: 0.0,
-                raw_data,
-            };
-
-            if let Err(e) = self.fr_repo.upsert_image(&image_record).await {
-                let details = json!({
-                    "fr_id": fr_id,
-                    "ext_id": external_id.as_str(),
-                    "error": e.to_string(),
-                });
-                self.append_repo_log("image_upsert_error", details.clone()).await;
-                return Err(FRError::with_details(
-                    1054,
-                    "Enrollment succeeded but eyefr image persistence failed",
-                    details,
-                ));
-            }
         }
 
         Ok(())
     }
 
-    async fn log_registration_failure(
+    async fn persist_image_snapshot(
         &self,
-        external_id: Option<&ExternalId>,
-        fr_id: Option<&str>,
-        err: &FRError,
-    ) {
+        external_id: &ExternalId,
+        image: &Bytes,
+        details: &EnrollDetails,
+        quality: f32,
+        acceptability: f32,
+    ) -> FRResult<()> {
+        let (_, _, _, image_url, raw_data) = Self::extract_profile_fields(Some(details));
+        let image_record = ImageRecord {
+            external_id: external_id.clone(),
+            data: image.to_vec(),
+            size: Some(image.len() as f32),
+            url: image_url,
+            quality,
+            acceptability,
+            raw_data,
+        };
+
+        if let Err(e) = self.fr_repo.upsert_image(&image_record).await {
+            let details = json!({
+                "ext_id": external_id.as_str(),
+                "error": e.to_string(),
+            });
+            self.append_repo_log("image_upsert_error", details.clone()).await;
+            return Err(FRError::with_details(
+                1054,
+                "Failed to persist enrollment image snapshot",
+                details,
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn log_create_enrollment_failure(&self, external_id: &ExternalId, err: &FRError) {
         let record = RegistrationErrorRecord {
-            external_id: external_id.cloned(),
-            fr_id: fr_id.map(str::to_string),
+            external_id: Some(external_id.clone()),
+            fr_id: None,
             message: Some(err.message.clone()),
         };
 
@@ -370,14 +372,19 @@ impl FRService {
             warn!("failed to record registration error in eyefr: {}", e);
         }
 
+        let code = match err.code {
+            1012 => "enrollment_quality_rejected",
+            1020 => "enrollment_duplicate_rejected",
+            _ => "enrollment_create_failed",
+        };
+
         let payload = json!({
-            "ext_id": external_id.map(ExternalId::as_str),
-            "fr_id": fr_id,
+            "ext_id": external_id.as_str(),
             "code": err.code,
             "message": err.message,
             "details": err.details.clone(),
         });
-        self.append_repo_log("remote_registration_error", payload).await;
+        self.append_repo_log(code, payload).await;
     }
 
     async fn append_repo_log(&self, code: &str, payload: Value) {
@@ -390,7 +397,7 @@ impl FRService {
         details: Option<&EnrollDetails>,
     ) -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<Value>) {
         match details {
-            Some(EnrollDetails::Min { first_name, last_name }) => {
+            Some(EnrollDetails::Min { first_name, last_name, .. }) => {
                 (Some(first_name.clone()), Some(last_name.clone()), None, None, None)
             }
             Some(EnrollDetails::TPass(raw)) => (
@@ -435,10 +442,27 @@ impl FRService {
 
     fn extract_ext_id_from_details(details: &EnrollDetails) -> Option<String> {
         match details {
-            EnrollDetails::TPass(data) => {
-                data.get("ccode").and_then(Value::as_u64).map(|num| num.to_string())
-            }
-            EnrollDetails::Min { .. } => None,
+            EnrollDetails::TPass(data) => data
+                .get("ccode")
+                .and_then(|value| {
+                    value
+                        .as_u64()
+                        .map(|num| num.to_string())
+                        .or_else(|| value.as_str().map(str::trim).map(str::to_string))
+                })
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    data.get("ext_id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                }),
+            EnrollDetails::Min { ext_id, .. } => ext_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
         }
     }
 }

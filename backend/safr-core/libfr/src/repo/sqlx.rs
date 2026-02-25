@@ -80,9 +80,7 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
+        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn delete_profile_by_external_id(&self, external_id: &ExternalId) -> RepoResult<u64> {
@@ -148,9 +146,7 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
+        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn find_profile_by_name(
@@ -280,9 +276,7 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
+        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn append_enrollment_log(
@@ -359,9 +353,7 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
+        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn get_enrollment_metadata(&self) -> RepoResult<EnrollmentMetadataRecord> {
@@ -514,22 +506,13 @@ impl TryFrom<RegistrationErrorRow> for RegistrationErrorRecord {
             None => None,
         };
 
-        Ok(Self {
-            external_id,
-            fr_id: row.fr_id,
-            message: row.message,
-        })
+        Ok(Self { external_id, fr_id: row.fr_id, message: row.message })
     }
 }
 
 impl From<EnrollmentLogRow> for EnrollmentLogRecord {
     fn from(row: EnrollmentLogRow) -> Self {
-        Self {
-            id: row.id,
-            code: row.code,
-            payload: row.payload,
-            retry_count: row.retry_count,
-        }
+        Self { id: row.id, code: row.code, payload: row.payload, retry_count: row.retry_count }
     }
 }
 

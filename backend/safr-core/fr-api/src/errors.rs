@@ -20,11 +20,7 @@ pub enum AppError {
 
 impl From<TPassError> for AppError {
     fn from(te: TPassError) -> Self {
-        AppError::Standard(StandardError {
-            code: 5000,
-            message: te.to_string(),
-            details: None,
-        })
+        AppError::Standard(StandardError { code: 5000, message: te.to_string(), details: None })
     }
 }
 
@@ -56,11 +52,7 @@ impl IntoResponse for AppError {
             }
             //These are just simple messages, we convert them to standard error with a default code and no detail.
             AppError::Generic(msg) => {
-                let std_err = StandardError {
-                    code: 0,
-                    message: msg,
-                    details: None,
-                };
+                let std_err = StandardError { code: 0, message: msg, details: None };
                 (StatusCode::OK, Json(std_err))
             }
         };

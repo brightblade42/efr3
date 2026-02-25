@@ -8,16 +8,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/identity/identity_service.proto");
     println!("cargo:rerun-if-changed=proto/identity/models.proto");
 
-    tonic_build::configure()
-        .build_server(false)
-        .compile_protos(
-            &[
-                "proto/proc/processor_service.proto",
-                "proto/proc/health_service.proto",
-                "proto/identity/identity_service.proto",
-            ],
-            &["proto/proc", "proto/identity"],
-        )?;
+    tonic_build::configure().build_server(false).compile_protos(
+        &[
+            "proto/proc/processor_service.proto",
+            "proto/proc/health_service.proto",
+            "proto/identity/identity_service.proto",
+        ],
+        &["proto/proc", "proto/identity"],
+    )?;
 
     Ok(())
 }

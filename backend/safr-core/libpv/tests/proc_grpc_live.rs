@@ -19,11 +19,7 @@ async fn live_proc_grpc_health_check() -> TestResult {
     let status = ServingStatus::try_from(health.status).unwrap_or(ServingStatus::Unknown);
     println!("health status: {:?}", status);
 
-    assert_ne!(
-        status,
-        ServingStatus::Unknown,
-        "health status should not be UNKNOWN"
-    );
+    assert_ne!(status, ServingStatus::Unknown, "health status should not be UNKNOWN");
     Ok(())
 }
 
@@ -34,11 +30,7 @@ async fn live_proc_grpc_process_images() -> TestResult {
     let image_dir = PathBuf::from(required_env(IMAGE_DIR_ENV)?);
     let image_paths = collect_jpeg_images(&image_dir)?;
 
-    assert!(
-        !image_paths.is_empty(),
-        "no jpg/jpeg files found in {}",
-        image_dir.display()
-    );
+    assert!(!image_paths.is_empty(), "no jpg/jpeg files found in {}", image_dir.display());
 
     let api = PVProcGrpcApi::new(endpoint);
     let mut processed = 0usize;
@@ -50,10 +42,7 @@ async fn live_proc_grpc_process_images() -> TestResult {
             Ok(response) => response,
             Err(err)
                 if err.code == 400
-                    && err
-                        .message
-                        .to_ascii_lowercase()
-                        .contains("not a valid image") =>
+                    && err.message.to_ascii_lowercase().contains("not a valid image") =>
             {
                 println!(
                     "skipping {} -> invalid image payload reported by processor",
@@ -100,28 +89,18 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
     let image_dir = PathBuf::from(required_env(IMAGE_DIR_ENV)?);
     let image_paths = collect_jpeg_images(&image_dir)?;
 
-    assert!(
-        !image_paths.is_empty(),
-        "no jpg/jpeg files found in {}",
-        image_dir.display()
-    );
+    assert!(!image_paths.is_empty(), "no jpg/jpeg files found in {}", image_dir.display());
 
     let api = PVProcGrpcApi::new(endpoint);
     let mut successful_checks = 0usize;
 
     for image_path in image_paths {
         let bytes = fs::read(&image_path)?;
-        let response = match api
-            .process_full_image(liveness_process_request(bytes))
-            .await
-        {
+        let response = match api.process_full_image(liveness_process_request(bytes)).await {
             Ok(response) => response,
             Err(err)
                 if err.code == 400
-                    && err
-                        .message
-                        .to_ascii_lowercase()
-                        .contains("not a valid image") =>
+                    && err.message.to_ascii_lowercase().contains("not a valid image") =>
             {
                 println!(
                     "skipping {} -> invalid image payload reported by processor",
@@ -138,11 +117,7 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
             continue;
         }
 
-        let idx = response
-            .most_prominent_face_idx
-            .try_into()
-            .ok()
-            .unwrap_or(0);
+        let idx = response.most_prominent_face_idx.try_into().ok().unwrap_or(0);
         let face = faces.get(idx).or_else(|| faces.first()).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -160,10 +135,7 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
         let validness = face.liveness_validness.as_ref().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!(
-                    "missing liveness validness payload for {}",
-                    image_path.display()
-                ),
+                format!("missing liveness validness payload for {}", image_path.display()),
             )
         })?;
 
@@ -186,10 +158,7 @@ async fn live_proc_grpc_liveness_check() -> TestResult {
         successful_checks += 1;
     }
 
-    assert!(
-        successful_checks > 0,
-        "expected at least one successful liveness check"
-    );
+    assert!(successful_checks > 0, "expected at least one successful liveness check");
     Ok(())
 }
 
@@ -249,10 +218,7 @@ fn liveness_process_request(image: Vec<u8>) -> processor::ProcessFullImageReques
 
 fn required_env(name: &str) -> Result<String, io::Error> {
     env::var(name).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("required env var {} is not set", name),
-        )
+        io::Error::new(io::ErrorKind::InvalidInput, format!("required env var {} is not set", name))
     })
 }
 

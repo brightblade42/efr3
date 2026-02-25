@@ -25,11 +25,7 @@ impl PVApiError {
     }
 
     pub fn with_code(code: u16, message: &str) -> Self {
-        Self {
-            code,
-            message: message.to_string(),
-            details: None,
-        }
+        Self { code, message: message.to_string(), details: None }
     }
 }
 

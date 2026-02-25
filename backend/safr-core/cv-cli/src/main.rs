@@ -116,11 +116,7 @@ async fn main() -> Result<()> {
 
             println!("We have enrolled the things!");
         }
-        Some(Commands::Index {
-            search,
-            comp,
-            client,
-        }) => {
+        Some(Commands::Index { search, comp, client }) => {
             println!("Oh you want a fancy shmancy index file?! Sure!");
 
             if let Some(srch) = search {
@@ -148,10 +144,8 @@ async fn main() -> Result<()> {
                     let start = range_chars.first().copied().unwrap_or('A') as u8;
                     let end = range_chars.last().copied().unwrap_or('Z') as u8;
                     let range = start..=end;
-                    sterm = range
-                        .map(|c| (c as char).to_string())
-                        .collect::<Vec<String>>()
-                        .join(",");
+                    sterm =
+                        range.map(|c| (c as char).to_string()).collect::<Vec<String>>().join(",");
                     let r1 = (start as char).to_string();
                     let r2 = (end as char).to_string();
                     output_file = format!("{}-{}-{}-{}.csv", comp, client, r1, r2);
@@ -368,16 +362,8 @@ fn read_ext_id(item: &Value) -> Option<String> {
     item.get("ext_id_str")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .or_else(|| {
-            item.get("ext_id")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            item.get("ext_id")
-                .and_then(Value::as_u64)
-                .map(|num| num.to_string())
-        })
+        .or_else(|| item.get("ext_id").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| item.get("ext_id").and_then(Value::as_u64).map(|num| num.to_string()))
 }
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -425,6 +411,7 @@ async fn enroll_from_idx(url: String, pth: &str) -> Result<Value> {
             let lname = item.last_name.clone();
             let details = json!({
                 "kind": "Min",
+                "ext_id": item.ext_id,
                 "last_name": item.last_name,
                 "first_name": item.first_name
             });
@@ -494,6 +481,7 @@ async fn enroll_from_dir(url: String, pth: &PathBuf) -> Result<Value> {
 
                 let details = json!({
                     "kind": "Min",
+                    "ext_id": fparts[0],
                     "last_name": fparts[1],
                     "first_name": fparts[2]
                 });
@@ -557,20 +545,11 @@ async fn post_b64_body(
     client: &Client,
 ) -> Result<Value> {
     let image_data = &[
-        (
-            "image",
-            format!("data:image/jpeg;name=file.jpeg;base64,{}", b64),
-        ), //TODO: use opts to determine filetype
+        ("image", format!("data:image/jpeg;name=file.jpeg;base64,{}", b64)), //TODO: use opts to determine filetype
         opt,
     ];
 
-    let res: Value = client
-        .post(url)
-        .form(image_data)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let res: Value = client.post(url).form(image_data).send().await?.json().await?;
     Ok(res)
 }
 

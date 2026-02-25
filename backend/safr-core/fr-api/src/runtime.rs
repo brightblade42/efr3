@@ -33,10 +33,7 @@ impl RemoteRuntime {
         let raw = remote.unwrap_or_else(|| DEFAULT_REMOTE.to_string());
         match raw.to_ascii_lowercase().as_str() {
             "tpass" => Ok(Self::TPass(tpass_client)),
-            _ => Err(format!(
-                "unsupported FR_REMOTE '{}'; supported values: tpass",
-                raw
-            )),
+            _ => Err(format!("unsupported FR_REMOTE '{}'; supported values: tpass", raw)),
         }
     }
 
@@ -151,9 +148,7 @@ impl FRBackend for FREngine {
         match self {
             Self::Paravision(backend) => backend.delete_enrollment(fr_id).await,
             #[cfg(test)]
-            Self::Mock => Ok(EnrollmentDeleteResult {
-                fr_id: fr_id.to_string(),
-            }),
+            Self::Mock => Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() }),
         }
     }
 
@@ -188,9 +183,7 @@ impl FRBackend for FREngine {
         match self {
             Self::Paravision(backend) => backend.reset_enrollments().await,
             #[cfg(test)]
-            Self::Mock => Ok(ResetEnrollmentsBackendResult {
-                msg: "mock reset".to_string(),
-            }),
+            Self::Mock => Ok(ResetEnrollmentsBackendResult { msg: "mock reset".to_string() }),
         }
     }
 

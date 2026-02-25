@@ -11,7 +11,7 @@ use super::{
 };
 use crate::repo::EnrollmentMetadataRecord;
 use crate::{
-    AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
+    utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
     EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult,
     ResetEnrollmentsBackendResult,
 };
@@ -55,10 +55,7 @@ impl PVBackend {
         config: MatchConfig,
     ) -> FRResult<identity::CreateIdentitiesRequest> {
         let image = enroll_data.image.clone().ok_or_else(|| {
-            FRError::with_code(
-                1010,
-                "An image is required for enrollment but was not found",
-            )
+            FRError::with_code(1010, "An image is required for enrollment but was not found")
         })?;
 
         let process_req = default_process_full_image_request(image, true);
@@ -72,16 +69,35 @@ impl PVBackend {
         }
 
         let p_idx = img_resp.most_prominent_face_idx as usize;
-        let faces = if img_resp.faces.is_empty() {
-            None
-        } else {
-            Some(&img_resp.faces)
-        }
-        .ok_or_else(|| FRError::with_code(1081, "enrollment image processing returned no faces"))?;
+        let faces = if img_resp.faces.is_empty() { None } else { Some(&img_resp.faces) }
+            .ok_or_else(|| {
+                FRError::with_code(1081, "enrollment image processing returned no faces")
+            })?;
 
         let prom_face = faces.get(p_idx).ok_or_else(|| {
             FRError::with_code(1082, "most prominent face index is out of bounds")
         })?;
+
+        let quality = prom_face.quality;
+        let acceptability = prom_face.acceptability;
+        if quality < config.min_quality || acceptability < config.min_acceptability {
+            let details = json!({
+                "quality": quality,
+                "acceptability": acceptability,
+                "min_quality": config.min_quality,
+                "min_acceptability": config.min_acceptability,
+                "quality_pct": utils::score_to_percentage(quality),
+                "acceptability_pct": utils::score_to_percentage(acceptability),
+                "min_quality_pct": utils::score_to_percentage(config.min_quality),
+                "min_acceptability_pct": utils::score_to_percentage(config.min_acceptability),
+            });
+
+            return Err(FRError::with_details(
+                1012,
+                "Image quality did not meet standards",
+                details,
+            ));
+        }
 
         let emb = (!prom_face.embedding.is_empty())
             .then_some(prom_face.embedding.clone())
@@ -95,13 +111,15 @@ impl PVBackend {
 
         match ident {
             Some(id) => {
-                let duplicate = id
-                    .matches
-                    .iter()
-                    .find(|ic| ic.score >= config.min_dupe_match);
+                let duplicate = id.matches.iter().find(|ic| ic.score >= config.min_dupe_match);
 
-                if let Some(confidence_match) = duplicate {
-                    let (fr_id, created_at) = confidence_match
+                if let Some(duplicate_match) = duplicate {
+                    let score = duplicate_match.score;
+                    let score_pct = utils::score_to_percentage(score);
+                    let threshold = config.min_dupe_match;
+                    let threshold_pct = utils::score_to_percentage(threshold);
+
+                    let (fr_id, created_at) = duplicate_match
                         .identity
                         .as_ref()
                         .map(|identity| (identity.id.clone(), identity_created_at(identity)))
@@ -110,11 +128,15 @@ impl PVBackend {
                     let details = json!({
                         "fr_id": fr_id,
                         "created_at": created_at,
+                        "score": score,
+                        "score_pct": score_pct,
+                        "threshold": threshold,
+                        "threshold_pct": threshold_pct,
                     });
 
                     Err(FRError::with_details(
                         1020,
-                        &format!("Duplicate: {} match", confidence_match.score),
+                        &format!("Duplicate: {:.2}% match", score_pct),
                         details,
                     ))
                 } else {
@@ -125,11 +147,9 @@ impl PVBackend {
                     ))
                 }
             }
-            None => Ok(create_identities_request_from_processed(
-                &img_resp,
-                config.min_dupe_match,
-                None,
-            )),
+            None => {
+                Ok(create_identities_request_from_processed(&img_resp, config.min_dupe_match, None))
+            }
         }
     }
 
@@ -226,10 +246,7 @@ impl PVBackend {
         .await;
 
         if let Err(err) = res {
-            error!(
-                "#GREAT SCOTT! The database write failed for log_identification! {:?}",
-                err
-            );
+            error!("#GREAT SCOTT! The database write failed for log_identification! {:?}", err);
             return Err(FRError::with_code(
                 2021,
                 "#GREAT SCOTT! The database write failed for log_identification!",
@@ -310,11 +327,13 @@ impl FRBackend for PVBackend {
 
         let mut id_req = match ident_req {
             Ok(id_req) => id_req,
-            Err(dup_err) => {
-                self.log_enroll_err("create_enrollment", &dup_err, &details)
-                    .await;
-                let value = serde_json::to_value(&details).unwrap_or_else(|_| json!({}));
-                return Err(FRError::with_details(1020, &dup_err.message, value));
+            Err(precheck_err) => {
+                self.log_enroll_err("create_enrollment", &precheck_err, &details).await;
+                let value = json!({
+                    "precheck": precheck_err.details.clone(),
+                    "enrollment": details,
+                });
+                return Err(FRError::with_details(precheck_err.code, &precheck_err.message, value));
             }
         };
 
@@ -338,8 +357,7 @@ impl FRBackend for PVBackend {
             }
             Err(e) => {
                 let fr_err = FRError::from(e);
-                self.log_enroll_err("create_enrollment", &fr_err, &details)
-                    .await;
+                self.log_enroll_err("create_enrollment", &fr_err, &details).await;
                 return Err(fr_err);
             }
         };
@@ -347,11 +365,7 @@ impl FRBackend for PVBackend {
         let fr_id = ident.id;
         let eid_str = ext_id.unwrap_or_default();
         let eid_num = eid_str.parse::<u64>().unwrap_or(0);
-        Ok(EnrollmentCreateResult {
-            fr_id,
-            ext_id: eid_num,
-            ext_id_str: eid_str,
-        })
+        Ok(EnrollmentCreateResult { fr_id, ext_id: eid_num, ext_id_str: eid_str })
     }
 
     async fn delete_enrollment(&self, face_id: &str) -> FRResult<EnrollmentDeleteResult> {
@@ -361,9 +375,7 @@ impl FRBackend for PVBackend {
 
         match res {
             Ok(delete_response) if delete_response.rows_affected > 0 => {
-                Ok(EnrollmentDeleteResult {
-                    fr_id: face_id.to_string(),
-                })
+                Ok(EnrollmentDeleteResult { fr_id: face_id.to_string() })
             }
             Ok(_) => {
                 let details = json!({ "fr_id": face_id });
@@ -372,15 +384,13 @@ impl FRBackend for PVBackend {
                     "pv returned no rows for delete request",
                     details.clone(),
                 );
-                self.log_delete_err("delete_enrollment", &fr_err, Some(details))
-                    .await;
+                self.log_delete_err("delete_enrollment", &fr_err, Some(details)).await;
                 Err(fr_err)
             }
             Err(e) => {
                 let details = json!({ "fr_id": face_id });
                 let fr_err = FRError::with_details(e.code, &e.message, details.clone());
-                self.log_delete_err("delete_enrollment", &fr_err, Some(details))
-                    .await;
+                self.log_delete_err("delete_enrollment", &fr_err, Some(details)).await;
                 Err(fr_err)
             }
         }
@@ -421,10 +431,7 @@ impl FRBackend for PVBackend {
         .fetch_all(&self.db)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(Self::profile_to_enrollment_item)
-            .collect())
+        Ok(rows.into_iter().map(Self::profile_to_enrollment_item).collect())
     }
 
     async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult> {
@@ -502,9 +509,7 @@ impl FRBackend for PVBackend {
         let delete_req = delete_faces_request(fr_id, face_id);
         let res = self.ident_api.delete_faces(delete_req).await?;
 
-        Ok(DeleteFaceResult {
-            rows_affected: res.rows_affected,
-        })
+        Ok(DeleteFaceResult { rows_affected: res.rows_affected })
     }
 
     async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
@@ -531,10 +536,7 @@ impl FRBackend for PVBackend {
         .fetch_all(&self.db)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(Self::profile_to_enrollment_item)
-            .collect())
+        Ok(rows.into_iter().map(Self::profile_to_enrollment_item).collect())
     }
 
     async fn log_identity(
@@ -543,7 +545,6 @@ impl FRBackend for PVBackend {
         extra: Option<&Value>,
         location: &str,
     ) -> FRResult<()> {
-        self.log_identification_db(fr_identity, extra, location)
-            .await
+        self.log_identification_db(fr_identity, extra, location).await
     }
 }

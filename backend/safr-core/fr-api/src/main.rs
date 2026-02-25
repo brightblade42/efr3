@@ -28,8 +28,8 @@ use tracing::{error, info};
 use crate::errors::AppError;
 use crate::fr_service::FRService;
 use crate::runtime::{FREngine, RemoteRuntime};
-use libfr::backend::MatchConfig;
 use libfr::repo::SqlxFrRepository;
+use libfr::{backend::MatchConfig, utils};
 
 use libtpass::api::TPassClient;
 
@@ -64,6 +64,13 @@ struct Config {
     port: u16,
 }
 impl Config {
+    fn parse_score_threshold(raw: &str, fallback: f32) -> f32 {
+        raw.trim()
+            .parse::<f32>()
+            .map(utils::normalize_score_threshold)
+            .unwrap_or(fallback)
+    }
+
     fn new() -> Self {
         //mostly precautionary, env vars are provided by docker-compose files
         let dev_url = "100.79.241.8";
@@ -97,11 +104,11 @@ impl Config {
             _use_tls: use_tls.parse().unwrap_or(false),
 
             //NOTE: seems unneeded since we fallback on a known good value when parsing env vars
-            min_match: min_match.parse().unwrap_or(0.95),
+            min_match: Self::parse_score_threshold(&min_match, 0.95),
             min_quality: min_quality.parse().unwrap_or(0.80),
             min_acceptability: min_acceptability.parse().unwrap_or(0.80),
 
-            min_dupe_match: min_dupe_match.parse().unwrap_or(0.98),
+            min_dupe_match: Self::parse_score_threshold(&min_dupe_match, 0.98),
             port: port.parse().unwrap_or(3000),
         }
     }
@@ -272,6 +279,8 @@ impl From<&Config> for MatchConfig {
             min_dupe_match: c.min_dupe_match,
             top_n: 2,
             top_n_min_match: 0.80,
+            min_quality: c.min_quality,
+            min_acceptability: c.min_acceptability,
         }
     }
 }
@@ -342,6 +351,7 @@ mod tests {
         uri: &str,
         include_image: bool,
         include_details: bool,
+        include_ext_id: bool,
     ) -> Request<Body> {
         let boundary = "X-BOUNDARY";
         let mut body = String::new();
@@ -354,8 +364,14 @@ mod tests {
         }
 
         if include_details {
+            let details = if include_ext_id {
+                r#"{"kind":"Min","first_name":"Test","last_name":"User","ext_id":"123"}"#
+            } else {
+                r#"{"kind":"Min","first_name":"Test","last_name":"User"}"#
+            };
+
             body.push_str(&format!(
-                "--{b}\r\nContent-Disposition: form-data; name=\"details\"\r\n\r\n{{\"kind\":\"Min\",\"first_name\":\"Test\",\"last_name\":\"User\"}}\r\n",
+                "--{b}\r\nContent-Disposition: form-data; name=\"details\"\r\n\r\n{details}\r\n",
                 b = boundary
             ));
         }
@@ -541,13 +557,26 @@ mod tests {
     #[tokio::test]
     async fn create_enrollment_missing_details_returns_standard_error_shape() {
         let app = test_app();
-        let req = multipart_enrollment_request("/fr/v2/enrollment/create", true, false);
+        let req = multipart_enrollment_request("/fr/v2/enrollment/create", true, false, false);
 
         let resp = app.oneshot(req).await.expect("response");
         assert_eq!(resp.status(), StatusCode::OK);
 
         let payload = response_json(resp).await;
         assert_eq!(payload["code"], 0);
+        assert!(payload["message"].is_string());
+    }
+
+    #[tokio::test]
+    async fn create_enrollment_missing_ext_id_returns_standard_error_shape() {
+        let app = test_app();
+        let req = multipart_enrollment_request("/fr/v2/enrollment/create", true, true, false);
+
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let payload = response_json(resp).await;
+        assert_eq!(payload["code"], 1050);
         assert!(payload["message"].is_string());
     }
 

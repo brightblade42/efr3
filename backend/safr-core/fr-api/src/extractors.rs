@@ -46,10 +46,7 @@ pub struct NewProfileEnrollData {
 
 /// Extract image and opts from multipart data.
 pub async fn extract_image_data(mut multipart: Multipart, min_match: f32) -> WResult<ImageData> {
-    let mut image_data = ImageData {
-        image: None,
-        opts: None,
-    };
+    let mut image_data = ImageData { image: None, opts: None };
 
     while let Some(field) = multipart
         .next_field()
@@ -69,10 +66,7 @@ pub async fn extract_image_data(mut multipart: Multipart, min_match: f32) -> WRe
                 let p_res = serde_json::from_str(jval.as_str());
                 image_data.opts = match p_res {
                     Ok(opts) => Some(opts),
-                    Err(_) => Some(ImageOpts {
-                        min_match,
-                        ..ImageOpts::default()
-                    }),
+                    Err(_) => Some(ImageOpts { min_match, ..ImageOpts::default() }),
                 }
             }
             _ => {}
@@ -80,9 +74,7 @@ pub async fn extract_image_data(mut multipart: Multipart, min_match: f32) -> WRe
     }
 
     if image_data.image.is_none() {
-        return Err(Generic(
-            "An image is required but was not provided".to_string(),
-        ));
+        return Err(Generic("An image is required but was not provided".to_string()));
     }
 
     Ok(image_data)
@@ -90,10 +82,7 @@ pub async fn extract_image_data(mut multipart: Multipart, min_match: f32) -> WRe
 
 /// Extract image and details from multipart form data.
 pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData> {
-    let mut enroll_data = EnrollData {
-        image: None,
-        details: None,
-    };
+    let mut enroll_data = EnrollData { image: None, details: None };
 
     while let Some(field) = multipart
         .next_field()
@@ -120,12 +109,12 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
     }
 
     match (&enroll_data.image, &enroll_data.details) {
-        (Some(_), None) => Err(Generic(
-            "You need to provide details to know who this person is!".to_string(),
-        )),
-        (None, None) => Err(Generic(
-            "Nothing was provided! What would we be enrolling?".to_string(),
-        )),
+        (Some(_), None) => {
+            Err(Generic("You need to provide details to know who this person is!".to_string()))
+        }
+        (None, None) => {
+            Err(Generic("Nothing was provided! What would we be enrolling?".to_string()))
+        }
         _ => Ok(enroll_data),
     }
 }
@@ -226,7 +215,5 @@ fn decode_base64_image(input: &str) -> WResult<Bytes> {
         }
     }
 
-    Err(Generic(
-        "image field was text but was not valid base64".to_string(),
-    ))
+    Err(Generic("image field was text but was not valid base64".to_string()))
 }
