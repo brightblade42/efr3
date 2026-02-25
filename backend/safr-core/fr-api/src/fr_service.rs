@@ -31,11 +31,7 @@ impl FRService {
         remote: Arc<RemoteRuntime>,
         fr_repo: Arc<SqlxFrRepository>,
     ) -> Self {
-        Self {
-            fr_engine,
-            remote,
-            fr_repo,
-        }
+        Self { fr_engine, remote, fr_repo }
     }
 
     pub async fn create_enrollment(
@@ -46,9 +42,7 @@ impl FRService {
         let remote_match = self.remote.search(&enroll_data).await?.into_iter().next();
 
         if enroll_data.image.is_none() {
-            enroll_data.image = match remote_match
-                .as_ref()
-                .and_then(|result| result.image.as_ref())
+            enroll_data.image = match remote_match.as_ref().and_then(|result| result.image.as_ref())
             {
                 Some(Image::Binary(bin)) => Some(bin.clone()),
                 None => None,
@@ -58,12 +52,7 @@ impl FRService {
         let candidate_ext_id = remote_match
             .as_ref()
             .and_then(|result| result.id.clone())
-            .or_else(|| {
-                enroll_data
-                    .details
-                    .as_ref()
-                    .and_then(Self::extract_ext_id_from_details)
-            });
+            .or_else(|| enroll_data.details.as_ref().and_then(Self::extract_ext_id_from_details));
 
         let details_snapshot = enroll_data.details.clone();
         let image_snapshot = enroll_data.image.clone();
@@ -116,8 +105,7 @@ impl FRService {
         if external_id.as_str().parse::<u64>().is_ok() {
             let reg_pair = RegistrationPair::new(fr_id.clone(), external_id.as_str().to_string());
             if let Err(err) = self.remote.register_enrollment(&reg_pair).await {
-                self.log_registration_failure(Some(&external_id), Some(&fr_id), &err)
-                    .await;
+                self.log_registration_failure(Some(&external_id), Some(&fr_id), &err).await;
                 return Err(err);
             }
         } else {
@@ -155,8 +143,7 @@ impl FRService {
                     "fr_id": fr_id,
                     "error": e.to_string(),
                 });
-                self.append_repo_log("profile_delete_error", details.clone())
-                    .await;
+                self.append_repo_log("profile_delete_error", details.clone()).await;
                 return Err(FRError::with_details(
                     1060,
                     "Enrollment deleted in backend but eyefr profile cleanup failed",
@@ -180,22 +167,15 @@ impl FRService {
     }
 
     pub async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
-        let roster = self
-            .fr_repo
-            .get_enrollment_roster(1000)
-            .await
-            .map_err(|e| {
-                FRError::with_details(
-                    1064,
-                    "Failed to load enrollment roster from eyefr repository",
-                    json!({ "error": e.to_string() }),
-                )
-            })?;
+        let roster = self.fr_repo.get_enrollment_roster(1000).await.map_err(|e| {
+            FRError::with_details(
+                1064,
+                "Failed to load enrollment roster from eyefr repository",
+                json!({ "error": e.to_string() }),
+            )
+        })?;
 
-        Ok(roster
-            .into_iter()
-            .map(Self::profile_to_enrollment_item)
-            .collect())
+        Ok(roster.into_iter().map(Self::profile_to_enrollment_item).collect())
     }
 
     pub async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsResult> {
@@ -209,10 +189,7 @@ impl FRService {
             )
         })?;
 
-        Ok(ResetEnrollmentsResult {
-            msg: backend_result.msg,
-            local_reset: reset,
-        })
+        Ok(ResetEnrollmentsResult { msg: backend_result.msg, local_reset: reset })
     }
 
     pub async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
@@ -240,10 +217,7 @@ impl FRService {
             .map(IDKind::Num)
             .collect();
 
-        let remote_matches = self
-            .remote
-            .search_many(SearchBy::ExtIDS(search_ids), false)
-            .await?;
+        let remote_matches = self.remote.search_many(SearchBy::ExtIDS(search_ids), false).await?;
 
         let details_by_ccode: HashMap<u64, Value> = remote_matches
             .into_iter()
@@ -264,12 +238,8 @@ impl FRService {
 
         for fr_ident in &mut fr_identities {
             for possible_match in &mut fr_ident.possible_matches {
-                if let Some(ccode) = possible_match
-                    .ext_id
-                    .trim()
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|ccode| *ccode != 0)
+                if let Some(ccode) =
+                    possible_match.ext_id.trim().parse::<u64>().ok().filter(|ccode| *ccode != 0)
                 {
                     if let Some(details) = details_by_ccode.get(&ccode) {
                         possible_match.details = Some(details.clone());
@@ -302,22 +272,15 @@ impl FRService {
             return Ok(vec![]);
         }
 
-        let profiles = self
-            .fr_repo
-            .search_profiles_by_last_name(term, 100)
-            .await
-            .map_err(|e| {
-                FRError::with_details(
-                    1061,
-                    "Failed to search enrollments from eyefr repository",
-                    json!({ "term": term, "error": e.to_string() }),
-                )
-            })?;
+        let profiles = self.fr_repo.search_profiles_by_last_name(term, 100).await.map_err(|e| {
+            FRError::with_details(
+                1061,
+                "Failed to search enrollments from eyefr repository",
+                json!({ "term": term, "error": e.to_string() }),
+            )
+        })?;
 
-        Ok(profiles
-            .into_iter()
-            .map(Self::profile_to_enrollment_item)
-            .collect())
+        Ok(profiles.into_iter().map(Self::profile_to_enrollment_item).collect())
     }
     pub async fn log_identity(
         &self,
@@ -325,9 +288,7 @@ impl FRService {
         extra: Option<&Value>,
         location: &str,
     ) -> FRResult<()> {
-        self.fr_engine
-            .log_identity(fr_identity, extra, location)
-            .await
+        self.fr_engine.log_identity(fr_identity, extra, location).await
     }
 
     async fn persist_profile_and_image(
@@ -356,8 +317,7 @@ impl FRService {
                 "ext_id": external_id.as_str(),
                 "error": e.to_string(),
             });
-            self.append_repo_log("profile_upsert_error", details.clone())
-                .await;
+            self.append_repo_log("profile_upsert_error", details.clone()).await;
             return Err(FRError::with_details(
                 1053,
                 "Enrollment succeeded but eyefr profile persistence failed",
@@ -382,8 +342,7 @@ impl FRService {
                     "ext_id": external_id.as_str(),
                     "error": e.to_string(),
                 });
-                self.append_repo_log("image_upsert_error", details.clone())
-                    .await;
+                self.append_repo_log("image_upsert_error", details.clone()).await;
                 return Err(FRError::with_details(
                     1054,
                     "Enrollment succeeded but eyefr image persistence failed",
@@ -418,8 +377,7 @@ impl FRService {
             "message": err.message,
             "details": err.details.clone(),
         });
-        self.append_repo_log("remote_registration_error", payload)
-            .await;
+        self.append_repo_log("remote_registration_error", payload).await;
     }
 
     async fn append_repo_log(&self, code: &str, payload: Value) {
@@ -430,24 +388,11 @@ impl FRService {
 
     fn extract_profile_fields(
         details: Option<&EnrollDetails>,
-    ) -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<Value>,
-    ) {
+    ) -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<Value>) {
         match details {
-            Some(EnrollDetails::Min {
-                first_name,
-                last_name,
-            }) => (
-                Some(first_name.clone()),
-                Some(last_name.clone()),
-                None,
-                None,
-                None,
-            ),
+            Some(EnrollDetails::Min { first_name, last_name }) => {
+                (Some(first_name.clone()), Some(last_name.clone()), None, None, None)
+            }
             Some(EnrollDetails::TPass(raw)) => (
                 Self::pick_string(raw, &["first_name", "firstName", "firstname"]),
                 Self::pick_string(raw, &["last_name", "lastName", "lastname"]),
@@ -490,10 +435,9 @@ impl FRService {
 
     fn extract_ext_id_from_details(details: &EnrollDetails) -> Option<String> {
         match details {
-            EnrollDetails::TPass(data) => data
-                .get("ccode")
-                .and_then(Value::as_u64)
-                .map(|num| num.to_string()),
+            EnrollDetails::TPass(data) => {
+                data.get("ccode").and_then(Value::as_u64).map(|num| num.to_string())
+            }
             EnrollDetails::Min { .. } => None,
         }
     }

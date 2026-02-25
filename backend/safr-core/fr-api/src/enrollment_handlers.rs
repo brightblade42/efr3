@@ -20,10 +20,7 @@ pub async fn search_enrollment(
 ) -> WResult<Json<Vec<EnrollmentRosterItem>>> {
     let SearchEnrollmentBy::LastName(term) = search_by;
 
-    let res = app_state
-        .fr_service
-        .get_enrollments_by_last_name(&term)
-        .await?;
+    let res = app_state.fr_service.get_enrollments_by_last_name(&term).await?;
     Ok(Json(res))
 }
 
@@ -35,10 +32,7 @@ pub async fn create_enrollment(
     let enroll_data = extractors::extract_enroll_data(multipart).await?;
     let mconf = MatchConfig::from(&app_state.config);
 
-    let res = app_state
-        .fr_service
-        .create_enrollment(enroll_data, mconf)
-        .await?;
+    let res = app_state.fr_service.create_enrollment(enroll_data, mconf).await?;
     Ok(Json(res))
 }
 
@@ -75,9 +69,7 @@ pub async fn add_face(
 ) -> WResult<Json<AddFaceResult>> {
     let fr_id = query.fr_id.trim();
     if fr_id.is_empty() {
-        return Err(Generic(
-            "fr_id query param is required for add-face".to_string(),
-        ));
+        return Err(Generic("fr_id query param is required for add-face".to_string()));
     }
 
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
@@ -94,15 +86,10 @@ pub async fn delete_face(
     Json(req): Json<DeleteFaceRequest>,
 ) -> WResult<Json<DeleteFaceApiResponse>> {
     if req.fr_id.trim().is_empty() || req.face_id.trim().is_empty() {
-        return Err(Generic(
-            "fr_id and face_id are required to delete a face".to_string(),
-        ));
+        return Err(Generic("fr_id and face_id are required to delete a face".to_string()));
     }
 
-    let res = app_state
-        .fr_service
-        .delete_face(&req.fr_id, &req.face_id)
-        .await?;
+    let res = app_state.fr_service.delete_face(&req.fr_id, &req.face_id).await?;
     Ok(Json(DeleteFaceApiResponse {
         rows_affected: res.rows_affected,
         fr_id: req.fr_id,
@@ -176,17 +163,11 @@ async fn resolve_fr_id_for_delete(
                     ))
                 })?
                 .ok_or_else(|| {
-                    Generic(format!(
-                        "no enrollment found for external id {}",
-                        external_id.as_str()
-                    ))
+                    Generic(format!("no enrollment found for external id {}", external_id.as_str()))
                 })?;
 
             profile.fr_id.ok_or_else(|| {
-                Generic(format!(
-                    "profile for external id {} has no fr_id",
-                    external_id.as_str()
-                ))
+                Generic(format!("profile for external id {} has no fr_id", external_id.as_str()))
             })
         }
         DeleteEnrollmentBy::Name(first, last) => {
@@ -201,17 +182,11 @@ async fn resolve_fr_id_for_delete(
                     ))
                 })?
                 .ok_or_else(|| {
-                    Generic(format!(
-                        "no enrollment found for name '{}, {}'",
-                        last, first
-                    ))
+                    Generic(format!("no enrollment found for name '{}, {}'", last, first))
                 })?;
 
             profile.fr_id.ok_or_else(|| {
-                Generic(format!(
-                    "profile for name '{}, {}' has no fr_id",
-                    last, first
-                ))
+                Generic(format!("profile for name '{}, {}' has no fr_id", last, first))
             })
         }
         DeleteEnrollmentBy::FullName(full) => {

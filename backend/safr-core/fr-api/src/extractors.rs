@@ -178,11 +178,14 @@ pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewPro
     }
 }
 
+//check if the raw_bytes based in are the actual image bytes or base64 encoded
+//and either convert the base64 encoding or return the raw_bytes unchanged.
 fn parse_image_field(raw_bytes: Bytes, content_type: Option<&str>) -> WResult<Option<Bytes>> {
     if raw_bytes.is_empty() {
         return Ok(None);
     }
 
+    //NOTE: the client must name the image portion of the upload, "image" or no werky, jerky
     if content_type.is_some_and(|item| item.starts_with("image")) {
         return Ok(Some(raw_bytes));
     }
@@ -193,6 +196,8 @@ fn parse_image_field(raw_bytes: Bytes, content_type: Option<&str>) -> WResult<Op
     }
 }
 
+//NOTE: how long do we plan to keep the base64 version of images. binary should at least
+//be the preferred default. remember base64 is 33% larger.
 fn decode_base64_image(input: &str) -> WResult<Bytes> {
     let cleaned = input.trim();
     if cleaned.is_empty() {
@@ -207,6 +212,8 @@ fn decode_base64_image(input: &str) -> WResult<Bytes> {
         })
         .map_or(cleaned, |(_, value)| value)
         .trim();
+
+    //NOTE: this seems a bit extra but we'll leave for now since it doesn't hurt to be explicit.
 
     for engine in [
         &general_purpose::STANDARD,

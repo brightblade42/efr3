@@ -39,6 +39,7 @@ impl Default for PVApiError {
     }
 }
 
+//TODO: not using serde here are we?
 impl From<serde_json::Error> for PVApiError {
     fn from(e: serde_json::Error) -> Self {
         let mut pv_err = PVApiError::new();
@@ -65,6 +66,8 @@ impl From<TonicTransportError> for PVApiError {
     }
 }
 
+//TODO: figure out if converting tonic to http code actually makes sense
+// i think it does since our client is thinking in http terms..not sure thou
 fn tonic_code_to_http(code: TonicCode) -> u16 {
     match code {
         TonicCode::Ok => 200,

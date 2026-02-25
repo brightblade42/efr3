@@ -1,0 +1,9 @@
+max_width = 100
+chain_width = 80
+fn_call_width = 80
+use_small_heuristics = "Max"
+# Slightly reduces over-eager argument wrapping
+fn_single_line = true
+
+# Lets small structs/enums stay compact
+struct_lit_single_line = true

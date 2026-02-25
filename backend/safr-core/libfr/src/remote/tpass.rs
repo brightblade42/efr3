@@ -7,7 +7,6 @@ use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
 use super::{RegistrationPair, SearchResult};
-
 impl Remote for TPassClient {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
         //TODO: reconstruct enrollment from old TPass functions.
@@ -145,10 +144,10 @@ impl Remote for TPassClient {
             } => {
                 //do a name search
                 let full_name = format!("{},{}", last_name, first_name);
-
+                //TODO: what are the conditions under which we would need to do a name search rather than an ext_id (ccode)
+                //search.
                 let sr = match self.search_by_name(&full_name).await?.first() {
                     Some(item) => {
-                        info!("HELOO SOME!!!!");
                         let x = item["imgUrl"].as_str().ok_or_else(|| {
                             FRError::with_code(1002, "name search returned profile without imgUrl")
                         })?;
@@ -170,16 +169,8 @@ impl Remote for TPassClient {
             SearchBy::ExtID(IDKind::Num(ccode)) => {
                 let sr = match self.get_clients_by_ccode(vec![ccode]).await?.first() {
                     Some(item) => {
-                        let x = item["imgUrl"].as_str();
-                        if x.is_none() {
-                            return Err(FRError::with_code(1002, &format!("client with ccode {} doesn't exist or has no imgUrl. can't enroll without an available image", ccode)));
-                        }
-
-                        let x = x.ok_or_else(|| {
-                            FRError::with_code(
-                                1002,
-                                "client with ccode has no imgUrl. can't enroll",
-                            )
+                        let x = item["imgUrl"].as_str().ok_or_else(|| {
+                            FRError::with_code(1002, &format!("client with ccode {} doesn't exist or has no imgUrl. can't enroll without an available image", ccode))
                         })?;
 
                         url = Some(x.to_string());

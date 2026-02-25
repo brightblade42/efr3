@@ -1,4 +1,12 @@
+use crate::config::TPassConf;
+use crate::errors::TPassError;
+use crate::tokens::{TPassToken, JWT};
 use crate::types::*;
+use crate::types::{
+    AttendanceKind, AttendanceResponse, AttendanceStatus, CheckState, DeleteProfileRequest,
+    EditProfileRequest, KioskRec, LastAttendanceResponse, NewProfileRequest, NewProfileResponse,
+    SearchRequest, TPassSearchType,
+};
 use bytes::Bytes;
 use chrono::prelude::*;
 use futures::{stream, StreamExt};
@@ -8,15 +16,7 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-
-use crate::config::TPassConf;
-use crate::errors::TPassError;
-use crate::tokens::{TPassToken, JWT};
-use crate::types::{
-    AttendanceKind, AttendanceResponse, AttendanceStatus, CheckState, DeleteProfileRequest,
-    EditProfileRequest, KioskRec, LastAttendanceResponse, NewProfileRequest, NewProfileResponse,
-    SearchRequest, TPassSearchType,
-};
+use std::fmt::Write;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -57,10 +57,7 @@ impl TPassClient {
             .danger_accept_invalid_certs(true)
             .build()
             .unwrap_or_else(|e| {
-                warn!(
-                    "failed building tpass http client, using default client: {}",
-                    e
-                );
+                warn!("failed building tpass http client, using default client: {}", e);
                 reqwest::Client::new()
             });
 
@@ -74,10 +71,7 @@ impl TPassClient {
 
     async fn cached_token(&self) -> Option<String> {
         let token = self.token.lock().await;
-        token
-            .as_ref()
-            .filter(|tok| !tok.is_expired())
-            .and_then(|tok| tok.token.clone())
+        token.as_ref().filter(|tok| !tok.is_expired()).and_then(|tok| tok.token.clone())
     }
 
     ///get a fresh hot new token from nice, nice hobbitses
@@ -116,23 +110,21 @@ impl TPassClient {
 
     async fn parse_json_value_response(res: reqwest::Response, endpoint: &str) -> TResult<Value> {
         let status = res.status();
+        //TODO: find out from Sherwin if this is the success path, i forget.
         if status == StatusCode::NO_CONTENT {
             return Ok(json!([]));
         }
 
         let txt = res.text().await?;
         if txt.trim().is_empty() {
-            return Err(TPassError::GenericError(Box::new(std::io::Error::other(
-                format!("empty response body from {endpoint} ({status})"),
-            ))));
+            return Err(TPassError::GenericError(Box::new(std::io::Error::other(format!(
+                "empty response body from {endpoint} ({status})"
+            )))));
         }
 
         let val: Value = serde_json::from_str(txt.as_str())?;
         if !status.is_success() {
-            warn!(
-                "TPass endpoint {} returned non-success status {}",
-                endpoint, status
-            );
+            warn!("TPass endpoint {} returned non-success status {}", endpoint, status);
         }
 
         Ok(val)
@@ -142,13 +134,7 @@ impl TPassClient {
     pub async fn create_profile(&self, profile: &NewProfileRequest) -> TResult<NewProfileResponse> {
         let endpoint = format!("{}api/clients", &self.conf.url);
         let ts = self.get_api_token().await?;
-        let val = self
-            .client
-            .post(&endpoint)
-            .bearer_auth(ts)
-            .json(&profile)
-            .send()
-            .await?;
+        let val = self.client.post(&endpoint).bearer_auth(ts).json(&profile).send().await?;
         let pr = Self::parse_json_value_response(val, &endpoint).await?;
         info!("THE PROF RESP. OY!");
 
@@ -168,19 +154,13 @@ impl TPassClient {
     ///If the record was not there, I get a 200 OK with a JSON formatted .NET exception
     ///with message field: "Message": "Record does not exist.",
     pub async fn delete_profile(&self, profile: DeleteProfileRequest) -> TResult<Value> {
-        let endpoint = format!(
-            "{}api/clients/delete?ccode={}",
-            &self.conf.url, profile.ccode
-        );
+        let endpoint = format!("{}api/clients/delete?ccode={}", &self.conf.url, profile.ccode);
         let ts = self.get_api_token().await?;
         let res = self.client.delete(&endpoint).bearer_auth(ts).send().await?;
         Self::parse_json_value_response(res, &endpoint).await
     }
 
-    pub async fn delete_profiles_verbose(
-        &self,
-        ccodes: Vec<i64>,
-    ) -> TResult<BatchCallResult<Value>> {
+    async fn delete_profiles_report(&self, ccodes: Vec<i64>) -> TResult<BatchCallResult<Value>> {
         debug!("delete_profiles count: {}", ccodes.len());
         let urls: Vec<String> = ccodes
             .into_iter()
@@ -223,10 +203,7 @@ impl TPassClient {
                 }
                 Err(e) => {
                     warn!("delete_profiles call failed for {}: {}", &url, e);
-                    errors.push(BatchCallError {
-                        target: url,
-                        message: e.to_string(),
-                    });
+                    errors.push(BatchCallError { target: url, message: e.to_string() });
                 }
             }
         }
@@ -235,7 +212,7 @@ impl TPassClient {
     }
 
     pub async fn delete_profiles(&self, ccodes: Vec<i64>) -> TResult<Vec<Value>> {
-        let batch = self.delete_profiles_verbose(ccodes).await?;
+        let batch = self.delete_profiles_report(ccodes).await?;
         if batch.meta.failed > 0 {
             warn!(
                 "delete_profiles completed with partial failures: {}/{} failed",
@@ -248,13 +225,7 @@ impl TPassClient {
     pub async fn edit_profile(&self, profile: EditProfileRequest) -> TResult<Value> {
         let endpoint = format!("{}api/clients/{}", &self.conf.url, profile.ccode);
         let ts = self.get_api_token().await?;
-        let res = self
-            .client
-            .put(&endpoint)
-            .bearer_auth(ts)
-            .json(&profile)
-            .send()
-            .await?;
+        let res = self.client.put(&endpoint).bearer_auth(ts).json(&profile).send().await?;
         Self::parse_json_value_response(res, &endpoint).await
     }
 
@@ -299,14 +270,8 @@ impl TPassClient {
         let mut kiosk = KioskRec::from(resp);
         kiosk.timeStamp = time_stamp;
 
-        let res: AttendanceResponse = client
-            .post(tk_url)
-            .json(&kiosk)
-            .bearer_auth(ts)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let res: AttendanceResponse =
+            client.post(tk_url).json(&kiosk).bearer_auth(ts).send().await?.json().await?;
 
         //println!("{:?}", &res);
         Ok(AttendanceStatus::from(res))
@@ -366,7 +331,7 @@ impl TPassClient {
     // }
 
     ///pass in some ccodes and get some TPass Clients. typically we use this to get a singular client
-    pub async fn get_clients_by_ccode_verbose(
+    async fn get_clients_by_ccode_report(
         &self,
         ccodes: Vec<u64>,
     ) -> TResult<BatchCallResult<Value>> {
@@ -406,10 +371,7 @@ impl TPassClient {
                 }
                 Err(e) => {
                     warn!("get_clients_by_ccode call failed for {}: {}", &url, e);
-                    errors.push(BatchCallError {
-                        target: url,
-                        message: e.to_string(),
-                    });
+                    errors.push(BatchCallError { target: url, message: e.to_string() });
                 }
             }
         }
@@ -418,7 +380,7 @@ impl TPassClient {
     }
 
     pub async fn get_clients_by_ccode(&self, ccodes: Vec<u64>) -> TResult<Vec<Value>> {
-        let batch = self.get_clients_by_ccode_verbose(ccodes).await?;
+        let batch = self.get_clients_by_ccode_report(ccodes).await?;
         if batch.meta.failed > 0 {
             warn!(
                 "get_clients_by_ccode completed with partial failures: {}/{} failed",
@@ -428,63 +390,65 @@ impl TPassClient {
         Ok(batch.items)
     }
 
-    ///The url formats vary depending on the client type we want to search for
-    ///so make sure we build the ones we need.
-    fn build_search_url(&self, search: SearchRequest) -> String {
-        let frag_builder = |typ: &str, term: &str| {
-            match typ {
-                "Student" => {
-                    format!(
-                        "clients/searchclient?id={}&type={}&compid={}",
-                        term, search.client_type, search.comp_id
-                    )
-                }
-                "Visitor" => {
-                    format!("clients/searchvisitor?&value={}", term)
-                }
-                "Personnel" => {
-                    format!(
-                        "clients/searchpersonnel?compid={}&value={}",
-                        search.comp_id, term
-                    )
-                }
-                _ => {
-                    "".to_string() //this should be an error maybe...
-                }
-            }
-        };
-
-        let search_frag = match search.search_term {
+    fn build_search_url(&self, search: &SearchRequest) -> String {
+        let mut out = String::new();
+        //bashe
+        out.push_str(&self.conf.url);
+        out.push_str("api/");
+        match &search.search_term {
             TPassSearchType::CCode(ccode) => {
-                format!("clients/load?id={}", ccode)
+                write!(&mut out, "clients/load?id={}", ccode).unwrap();
             }
-            TPassSearchType::Name(term) => frag_builder(&search.client_type, &term),
-        };
-
-        format!("{}api/{}", &self.conf.url, search_frag)
+            TPassSearchType::Name(term) => {
+                match search.client_type.as_str() {
+                    "Student" => {
+                        write!(
+                            &mut out,
+                            "clients/searchclient?id={}&type={}&compid={}",
+                            term, search.client_type, search.comp_id
+                        )
+                        .unwrap();
+                    }
+                    "Visitor" => {
+                        write!(&mut out, "clients/searchvisitor?&value={}", term).unwrap();
+                    }
+                    "Personnel" => {
+                        write!(
+                            &mut out,
+                            "clients/searchpersonnel?compid={}&value={}",
+                            search.comp_id, term
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        // probably should be an error
+                    }
+                }
+            }
+        }
+        out
     }
 
     ///returns the set of urls that we will search over based on comma sep search terms.
     fn parse_search_terms(&self, search: SearchRequest) -> Vec<String> {
-        let mut urls: Vec<String> = vec![];
-        //each comma delimited character set is its own seach term
-        let sub_terms = if let TPassSearchType::Name(ref term) = search.search_term {
-            if term.contains(',') {
-                term.split(',').map(|c| c.to_string()).collect()
-            } else {
-                vec![term.to_owned()]
-            }
-        } else {
-            //defensive fallback; caller currently routes name terms here.
-            warn!("search term must be string based");
-            return urls;
-        };
-
         let depth = search.depth.unwrap_or(1);
 
-        //TODO: why are we passing SearchRequest by ref? not being used
-        //build a new url for each of our new terms
-        let new_url = |_s: &SearchRequest, st: &str| -> String {
+        let sub_terms: Vec<String> = match &search.search_term {
+            //NOTE: make sure we have the single term if there's no comma
+            TPassSearchType::Name(term) => term
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect(),
+
+            _ => {
+                warn!("search term must be string based");
+                return vec![];
+            }
+        };
+
+        let new_url = |st: &str| -> String {
             let sr = SearchRequest {
                 search_term: TPassSearchType::Name(st.to_string()),
                 client_type: search.client_type.clone(),
@@ -492,44 +456,52 @@ impl TPassClient {
                 depth: None,
             };
 
-            self.build_search_url(sr)
+            self.build_search_url(&sr)
         };
 
-        //coerce to ascii land.
-        let char_coll: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            .bytes()
-            .map(|c| c as char)
-            .collect();
-
-        for s in &sub_terms {
-            //just match what we sent, don't break it up.
+        let mut urls = Vec::new();
+        for s in sub_terms {
             if depth == 0 || s.len() >= 3 {
-                let url = new_url(&search, s);
-                urls.push(url);
-            } else if depth == 1 {
-                //AA AB AC
-                for c in &char_coll {
-                    let url = new_url(&search, &format!("{}{}", s, c));
-                    urls.push(url);
+                urls.push(new_url(&s));
+                continue;
+            }
+
+            match depth {
+                1 => {
+                    for c in b'A'..=b'Z' {
+                        let mut t = String::with_capacity(s.len() + 1);
+                        t.push_str(&s);
+                        t.push(c as char);
+                        urls.push(new_url(&t));
+                    }
                 }
-            } else if depth >= 2 {
-                //Johnny Depth  AAA AAB AAC
-                for c in &char_coll {
-                    for c2 in &char_coll {
-                        let url = new_url(&search, &format!("{s}{c}{c2}"));
-                        urls.push(url);
+                _ => {
+                    //search url count grows exponentially, we cap it but show that were getting
+                    //deep search requests.
+                    if depth > 2 {
+                        warn!(
+                            "search depth {} exceeds maximum supported depth (2); expansion is capped",
+                                    depth
+                                );
+                    }
+                    for c1 in b'A'..=b'Z' {
+                        for c2 in b'A'..=b'Z' {
+                            let mut t = String::with_capacity(s.len() + 2);
+                            t.push_str(&s);
+                            t.push(c1 as char);
+                            t.push(c2 as char);
+                            urls.push(new_url(&t));
+                        }
                     }
                 }
             }
         }
+
         urls
     }
 
     //full a-z search
-    pub async fn search_tpass_verbose(
-        &self,
-        search: SearchRequest,
-    ) -> TResult<BatchCallResult<Value>> {
+    pub async fn search_tpass(&self, search: SearchRequest) -> TResult<BatchCallResult<Value>> {
         //TOOD: get depth from client
         let urls = self.parse_search_terms(search);
         let attempted = urls.len();
@@ -566,40 +538,19 @@ impl TPassClient {
                 }
                 Err(e) => {
                     warn!("search_tpass call failed for {}: {}", &url, e);
-                    errors.push(BatchCallError {
-                        target: url,
-                        message: e.to_string(),
-                    });
+                    errors.push(BatchCallError { target: url, message: e.to_string() });
                 }
             }
         }
 
         Ok(BatchCallResult::new(items, attempted, succeeded, errors))
     }
-
-    pub async fn search_tpass(&self, search: SearchRequest) -> TResult<Vec<Value>> {
-        let batch = self.search_tpass_verbose(search).await?;
-        if batch.meta.failed > 0 {
-            warn!(
-                "search_tpass completed with partial failures: {}/{} failed",
-                batch.meta.failed, batch.meta.attempted
-            );
-        }
-        Ok(batch.items)
-    }
-
     //TODO: there doesn't seem to be any error response, I can send anything and it gives me
     //a 200. I'll only know if I get an email or an sms.
     pub async fn send_fr_alert(&self, alert: FRAlert) -> TResult<Value> {
         let endpoint = format!("{}api/notification/sendalert", self.conf.url);
         let ts = self.get_api_token().await?;
-        let _res = self
-            .client
-            .post(endpoint)
-            .json(&alert)
-            .bearer_auth(ts)
-            .send()
-            .await?;
+        let _res = self.client.post(endpoint).json(&alert).bearer_auth(ts).send().await?;
         Ok(json!({ "message": "alert sent" }))
     }
 }
@@ -682,14 +633,8 @@ impl TPassClient {
         );
         let tk_url = format!("{}api/timekeeper", self.conf.url);
 
-        let res: Vec<LastAttendanceResponse> = self
-            .client
-            .get(last_known_url)
-            .bearer_auth(&ts)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let res: Vec<LastAttendanceResponse> =
+            self.client.get(last_known_url).bearer_auth(&ts).send().await?.json().await?;
 
         //NOTE: We actually only recieve a single result for a given id_number even though it is in a vector.
         //There is also nothing preventing TPASS from storing identical id_numbers. This means we could get the wrong thing back.
@@ -767,13 +712,8 @@ impl TPassClient {
                         return Ok(None);
                     };
 
-                    let res: Vec<LastAttendanceResponse> = client
-                        .get(last_known_url)
-                        .bearer_auth(&ts)
-                        .send()
-                        .await?
-                        .json()
-                        .await?;
+                    let res: Vec<LastAttendanceResponse> =
+                        client.get(last_known_url).bearer_auth(&ts).send().await?.json().await?;
 
                     //if we receive more than one result for an id, we need to narrow to the ccode.
                     //the rules for idnumber in tpass are very relaxed and very undude
@@ -860,20 +800,11 @@ impl TPassClient {
         let url = format!("{}api/paravision/updatepvid", self.conf.url);
 
         let reg_info = json!({ "CCode": ccode, "ID": fr_id });
-        let res = self
-            .client
-            .put(&url)
-            .bearer_auth(&tk)
-            .json(&reg_info)
-            .send()
-            .await?;
+        let res = self.client.put(&url).bearer_auth(&tk).json(&reg_info).send().await?;
 
         let reg_val = Self::parse_json_value_response(res, &url).await?;
 
-        info!(
-            "REG: ccode: {} fr_id: {}",
-            &reg_val["cCode"], &reg_val["id"]
-        );
+        info!("REG: ccode: {} fr_id: {}", &reg_val["cCode"], &reg_val["id"]);
         //this is weird because we are going to return ok, even if we receive an error here.
         //when we fix our TPassError debacle we'll revisit this with a better solution.
 
