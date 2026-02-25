@@ -125,10 +125,7 @@ pub async fn recognize(
     let mut mconf = MatchConfig::from(&app_state.config);
 
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-    mconf.top_n = img_data
-        .opts
-        .as_ref()
-        .map_or(mconf.top_n, |opts| opts.top_matches as i32);
+    mconf.top_n = img_data.opts.as_ref().map_or(mconf.top_n, |opts| opts.top_matches as i32);
 
     let image = img_data
         .image

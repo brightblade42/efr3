@@ -56,10 +56,7 @@ impl From<JWT> for TPassToken {
             }
         };
 
-        Self {
-            token: Some(token),
-            claims,
-        }
+        Self { token: Some(token), claims }
     }
 }
 

@@ -371,14 +371,6 @@ impl<T> BatchCallResult<T> {
         errors: Vec<BatchCallError>,
     ) -> Self {
         let failed = errors.len();
-        Self {
-            items,
-            meta: BatchCallMeta {
-                attempted,
-                succeeded,
-                failed,
-            },
-            errors,
-        }
+        Self { items, meta: BatchCallMeta { attempted, succeeded, failed }, errors }
     }
 }

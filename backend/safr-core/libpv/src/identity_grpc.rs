@@ -21,10 +21,7 @@ pub struct PVIdentityGrpcApi {
 
 impl PVIdentityGrpcApi {
     pub fn new(endpoint: String) -> Self {
-        Self {
-            endpoint: normalize_endpoint(endpoint),
-            channel: Arc::new(OnceCell::new()),
-        }
+        Self { endpoint: normalize_endpoint(endpoint), channel: Arc::new(OnceCell::new()) }
     }
 
     pub async fn get_identities(
@@ -40,10 +37,7 @@ impl PVIdentityGrpcApi {
         req: identity::CreateIdentitiesRequest,
     ) -> PVResult<identity::CreateIdentitiesResponse> {
         let mut client = self.identity_client().await?;
-        Ok(client
-            .create_identities(Request::new(req))
-            .await?
-            .into_inner())
+        Ok(client.create_identities(Request::new(req)).await?.into_inner())
     }
 
     pub async fn delete_identities(
@@ -51,10 +45,7 @@ impl PVIdentityGrpcApi {
         req: identity::DeleteIdentitiesRequest,
     ) -> PVResult<identity::DeleteIdentitiesResponse> {
         let mut client = self.identity_client().await?;
-        Ok(client
-            .delete_identities(Request::new(req))
-            .await?
-            .into_inner())
+        Ok(client.delete_identities(Request::new(req)).await?.into_inner())
     }
 
     pub async fn lookup(&self, req: identity::LookupRequest) -> PVResult<identity::LookupResponse> {
@@ -89,7 +80,9 @@ impl PVIdentityGrpcApi {
     async fn identity_client(
         &self,
     ) -> PVResult<identity::identity_service_client::IdentityServiceClient<Channel>> {
-        Ok(identity::identity_service_client::IdentityServiceClient::new(self.channel().await?))
+        Ok(identity::identity_service_client::IdentityServiceClient::new(
+            self.channel().await?,
+        ))
     }
 
     async fn channel(&self) -> PVResult<Channel> {

@@ -94,10 +94,12 @@ There are two error classes:
   - each result includes `possible_matches[]` entries with:
     - `fr_id`
     - `ext_id`
-    - `score` (match score)
+    - `score` (raw match score in `[0,1]`)
+    - `score_pct` (friendly percentage score)
     - `details` (nullable)
 - Field semantics:
-  - `possible_matches[].score` is the canonical response field.
+  - `possible_matches[].score` is used internally for threshold comparison.
+  - `possible_matches[].score_pct` is for display/UI friendliness.
   - `possible_matches[].confidence` is not emitted by `/fr/v2/recognize` responses.
 - Contract checks:
   - Missing `image` => HTTP `200` + standard error envelope
@@ -133,6 +135,8 @@ There are two error classes:
 - Multipart fields:
   - `image` (required)
   - `details` (required JSON object mapped to `EnrollDetails`)
+    - for `{"kind":"Min", ...}` payloads, `ext_id` is required
+    - for `{"kind":"TPass", ...}` payloads, `ccode` (or `ext_id`) is required
 - Success response:
   - JSON object including:
     - `fr_id`
@@ -140,6 +144,7 @@ There are two error classes:
     - `ext_id_str` (canonical string)
 - Contract checks:
   - Missing `details` with image present => HTTP `200` + standard error envelope (`code=0`)
+  - Missing external id in `details` => HTTP `200` + standard error envelope (`code=1050`)
 
 ### `POST /fr/v2/enrollment/delete`
 

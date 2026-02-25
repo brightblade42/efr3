@@ -42,10 +42,7 @@ async fn upsert_get_delete_profile_roundtrip() -> TestResult {
     assert_eq!(deleted, 1, "expected to delete exactly one profile row");
 
     let maybe_deleted = repo.get_profile_by_external_id(&external_id).await?;
-    assert!(
-        maybe_deleted.is_none(),
-        "profile should not exist after delete"
-    );
+    assert!(maybe_deleted.is_none(), "profile should not exist after delete");
 
     pool.close().await;
 
@@ -73,16 +70,12 @@ async fn search_profiles_by_last_name_roundtrip() -> TestResult {
 
     let hits = repo.search_profiles_by_last_name(&marker, 10).await?;
     assert!(
-        hits.iter()
-            .any(|item| item.external_id.as_str() == external_id.as_str()),
+        hits.iter().any(|item| item.external_id.as_str() == external_id.as_str()),
         "expected search results to include inserted profile"
     );
 
     let roster = repo.get_enrollment_roster(100).await?;
-    assert!(
-        !roster.is_empty(),
-        "expected roster call to return at least one profile"
-    );
+    assert!(!roster.is_empty(), "expected roster call to return at least one profile");
 
     let metadata = repo.get_enrollment_metadata().await?;
     assert!(metadata.profiles_total >= 1);
@@ -101,10 +94,7 @@ async fn search_profiles_by_last_name_roundtrip() -> TestResult {
         .find_profile_by_name("search", &marker.to_lowercase(), None)
         .await?
         .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "expected case-insensitive name match",
-            )
+            io::Error::new(io::ErrorKind::NotFound, "expected case-insensitive name match")
         })?;
     assert_eq!(case_insensitive.external_id.as_str(), external_id.as_str());
 
@@ -147,10 +137,7 @@ async fn upsert_get_delete_image_roundtrip() -> TestResult {
     assert_eq!(deleted, 1, "expected to delete exactly one image row");
 
     let maybe_deleted = repo.get_image_by_external_id(&external_id).await?;
-    assert!(
-        maybe_deleted.is_none(),
-        "image should not exist after delete"
-    );
+    assert!(maybe_deleted.is_none(), "image should not exist after delete");
 
     pool.close().await;
 
@@ -175,26 +162,17 @@ async fn insert_and_read_fr_logs_roundtrip() -> TestResult {
 
     repo.insert_registration_error(&reg_error).await?;
 
-    let reg_rows = repo
-        .get_registration_errors_by_external_id(&external_id, 10)
-        .await?;
+    let reg_rows = repo.get_registration_errors_by_external_id(&external_id, 10).await?;
     assert!(
-        reg_rows
-            .iter()
-            .any(|row| row.message.as_deref() == Some(reg_message.as_str())),
+        reg_rows.iter().any(|row| row.message.as_deref() == Some(reg_message.as_str())),
         "expected registration error entry with marker"
     );
 
-    repo.append_enrollment_log(&enrollment_code, &enrollment_payload)
-        .await?;
+    repo.append_enrollment_log(&enrollment_code, &enrollment_payload).await?;
 
-    let enroll_rows = repo
-        .get_enrollment_logs_by_code(&enrollment_code, 10)
-        .await?;
+    let enroll_rows = repo.get_enrollment_logs_by_code(&enrollment_code, 10).await?;
     assert!(
-        enroll_rows
-            .iter()
-            .any(|row| row.payload == enrollment_payload),
+        enroll_rows.iter().any(|row| row.payload == enrollment_payload),
         "expected enrollment log payload with marker"
     );
 
@@ -233,10 +211,7 @@ async fn insert_and_read_fr_logs_roundtrip() -> TestResult {
 
 async fn connect_repo() -> RepoSetupResult {
     let db_url = env::var(IDENTITY_DB_URL_ENV)?;
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&db_url)
-        .await?;
+    let pool = PgPoolOptions::new().max_connections(1).connect(&db_url).await?;
     let repo = SqlxFrRepository::new(pool.clone());
     Ok((pool, repo))
 }

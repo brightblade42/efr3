@@ -19,10 +19,7 @@ pub async fn mark_attendance(
 ) -> WResult<Json<Value>> {
     let mut mconf = MatchConfig::from(&app_state.config);
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-    mconf.top_n = img_data
-        .opts
-        .as_ref()
-        .map_or(mconf.top_n, |opts| opts.top_matches as i32);
+    mconf.top_n = img_data.opts.as_ref().map_or(mconf.top_n, |opts| opts.top_matches as i32);
 
     let image = img_data
         .image
@@ -73,10 +70,7 @@ pub async fn mark_attendance(
         ));
     };
 
-    let mut v_ident = VerifiedIdentity {
-        identity: fr_ident,
-        status: None,
-    };
+    let mut v_ident = VerifiedIdentity { identity: fr_ident, status: None };
 
     debug!("THE OPTS: {:?}", img_data.opts);
     let mut att_kind = None;
@@ -119,10 +113,7 @@ pub async fn mark_attendance(
 
 // Make sure an identity has details we can use.
 fn validate_details(fr_ident: &FRIdentity) -> WResult<Value> {
-    let details = fr_ident
-        .possible_matches
-        .first()
-        .and_then(|x| x.details.clone());
+    let details = fr_ident.possible_matches.first().and_then(|x| x.details.clone());
 
     let details = match details {
         Some(d) => d,

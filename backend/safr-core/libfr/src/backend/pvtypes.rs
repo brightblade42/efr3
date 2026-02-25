@@ -71,11 +71,7 @@ pub(crate) fn create_identities_request_from_processed(
         .map(|face| {
             (
                 face.embedding.clone(),
-                if face.quality.is_finite() {
-                    face.quality
-                } else {
-                    0.0
-                },
+                if face.quality.is_finite() { face.quality } else { 0.0 },
             )
         })
         .unwrap_or_else(|| (vec![], 0.0));
@@ -118,9 +114,7 @@ pub(crate) fn lookup_candidates_from_processed(
         if face.embedding.is_empty() {
             continue;
         }
-        embeddings.push(identity::Embedding {
-            embedding: face.embedding.clone(),
-        });
+        embeddings.push(identity::Embedding { embedding: face.embedding.clone() });
         faces_with_embeddings.push(face);
     }
 
@@ -154,9 +148,7 @@ pub(crate) fn add_faces_request_from_processed(
             continue;
         }
 
-        embeddings.push(identity::Embedding {
-            embedding: face.embedding,
-        });
+        embeddings.push(identity::Embedding { embedding: face.embedding });
         if face.quality.is_finite() {
             qualities.push(face.quality);
         }
@@ -190,18 +182,11 @@ pub(crate) fn delete_faces_request(fr_id: &str, face_id: &str) -> identity::Dele
 }
 
 pub(crate) fn delete_identity_request(fr_id: &str) -> identity::DeleteIdentitiesRequest {
-    identity::DeleteIdentitiesRequest {
-        ids: vec![fr_id.to_string()],
-        external_ids: vec![],
-    }
+    identity::DeleteIdentitiesRequest { ids: vec![fr_id.to_string()], external_ids: vec![] }
 }
 
 pub(crate) fn list_identities_request(page_size: i32) -> identity::GetIdentitiesRequest {
-    identity::GetIdentitiesRequest {
-        group_ids: vec![],
-        page_token: String::new(),
-        page_size,
-    }
+    identity::GetIdentitiesRequest { group_ids: vec![], page_token: String::new(), page_size }
 }
 
 pub(crate) fn identity_created_at(identity: &identity::Identity) -> String {
@@ -209,22 +194,12 @@ pub(crate) fn identity_created_at(identity: &identity::Identity) -> String {
 }
 
 pub(crate) fn to_add_face_result(response: identity::AddFacesResponse) -> AddFaceResult {
-    AddFaceResult {
-        faces: response
-            .faces
-            .into_iter()
-            .map(to_enrollment_face_info)
-            .collect(),
-    }
+    AddFaceResult { faces: response.faces.into_iter().map(to_enrollment_face_info).collect() }
 }
 
 pub(crate) fn to_get_face_info_result(response: identity::GetFacesResponse) -> GetFaceInfoResult {
     GetFaceInfoResult {
-        faces: response
-            .faces
-            .into_iter()
-            .map(to_enrollment_face_info)
-            .collect(),
+        faces: response.faces.into_iter().map(to_enrollment_face_info).collect(),
         next_page_token: response.next_page_token,
         total_size: response.total_size,
     }
@@ -257,10 +232,7 @@ pub(crate) fn possible_matches_from_lookup(
 
     if possible_matches.len() > 1 {
         possible_matches.sort_by(|a, b| {
-            a.score
-                .partial_cmp(&b.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .reverse()
+            a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal).reverse()
         });
     }
 
@@ -278,10 +250,7 @@ impl From<processor::Face> for Face {
             height: bb.height.round(),
         });
 
-        let liveness = to_liveness(
-            pv_face.liveness.as_ref(),
-            pv_face.liveness_validness.as_ref(),
-        );
+        let liveness = to_liveness(pv_face.liveness.as_ref(), pv_face.liveness_validness.as_ref());
 
         Self {
             bbox,
@@ -304,10 +273,7 @@ impl From<&processor::Face> for Face {
             height: bb.height.round(),
         });
 
-        let liveness = to_liveness(
-            pv_face.liveness.as_ref(),
-            pv_face.liveness_validness.as_ref(),
-        );
+        let liveness = to_liveness(pv_face.liveness.as_ref(), pv_face.liveness_validness.as_ref());
 
         Self {
             bbox,
@@ -341,11 +307,7 @@ fn to_liveness(
         let is_live = validness.map(|item| item.is_valid).unwrap_or(false)
             && liveness.liveness_probability > 0.5;
 
-        crate::Liveness {
-            is_live,
-            feedback,
-            score: liveness.liveness_probability,
-        }
+        crate::Liveness { is_live, feedback, score: liveness.liveness_probability }
     })
 }
 

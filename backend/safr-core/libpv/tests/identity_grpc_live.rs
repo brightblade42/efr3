@@ -35,9 +35,7 @@ async fn live_identity_grpc_health_check() -> TestResult {
     let mut client = HealthClient::new(channel);
 
     let response = client
-        .check(Request::new(HealthCheckRequest {
-            service: String::new(),
-        }))
+        .check(Request::new(HealthCheckRequest { service: String::new() }))
         .await?
         .into_inner();
 
@@ -45,9 +43,7 @@ async fn live_identity_grpc_health_check() -> TestResult {
     println!("identity health status: {:?}", status);
 
     if status == ServingStatus::Unknown {
-        return Err(
-            io::Error::new(io::ErrorKind::Other, "identity health returned UNKNOWN").into(),
-        );
+        return Err(io::Error::new(io::ErrorKind::Other, "identity health returned UNKNOWN").into());
     }
 
     Ok(())
@@ -61,19 +57,14 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     let templates = templates_from_proc_or_synthetic().await;
 
     let first = templates.first().cloned().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "expected at least one extracted face template",
-        )
+        io::Error::new(io::ErrorKind::InvalidData, "expected at least one extracted face template")
     })?;
     let second = templates.get(1).cloned().unwrap_or_else(|| first.clone());
 
     let external_id = format!("grpc-smoke-{}", unix_millis());
     let create_req = identity::CreateIdentitiesRequest {
         group_ids: vec![],
-        embeddings: vec![identity::Embedding {
-            embedding: first.embedding.clone(),
-        }],
+        embeddings: vec![identity::Embedding { embedding: first.embedding.clone() }],
         threshold: 0.0,
         model: String::new(),
         qualities: vec![first.quality],
@@ -84,15 +75,9 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
     };
 
     let created = ident_api.create_identities(create_req).await?;
-    let created_id = created
-        .identities
-        .first()
-        .map(|identity| identity.id.clone())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "identity create returned no identities",
-            )
+    let created_id =
+        created.identities.first().map(|identity| identity.id.clone()).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "identity create returned no identities")
         })?;
 
     println!(
@@ -106,9 +91,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
 
     let add_req = identity::AddFacesRequest {
         identity_id: created_id.clone(),
-        embeddings: vec![identity::Embedding {
-            embedding: second.embedding.clone(),
-        }],
+        embeddings: vec![identity::Embedding { embedding: second.embedding.clone() }],
         threshold: 0.0,
         model: String::new(),
         qualities: vec![second.quality],
@@ -166,15 +149,10 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
         Err(err) => issues.push(format!("get_faces failed: {}", err)),
     }
 
-    match ident_api
-        .lookup(single_lookup_request(first.embedding.clone()))
-        .await
-    {
+    match ident_api.lookup(single_lookup_request(first.embedding.clone())).await {
         Ok(lookup_resp) => {
-            let match_count = lookup_resp
-                .lookup_identities
-                .first()
-                .map_or(0usize, |item| item.matches.len());
+            let match_count =
+                lookup_resp.lookup_identities.first().map_or(0usize, |item| item.matches.len());
             println!(
                 "lookup_single from created embedding -> match_count={} (created_id={})",
                 match_count, created_id
@@ -196,10 +174,7 @@ async fn live_identity_grpc_create_add_face_lookup_delete_roundtrip() -> TestRes
 
     println!("cleanup delete identity {} -> {}", created_id, deleted);
     if !deleted {
-        issues.push(format!(
-            "cleanup failed: identity {} was not deleted",
-            created_id
-        ));
+        issues.push(format!("cleanup failed: identity {} was not deleted", created_id));
     }
 
     if !issues.is_empty() {
@@ -217,17 +192,11 @@ async fn collect_templates(
 
     for image_path in image_paths {
         let bytes = fs::read(image_path)?;
-        let response = match proc_api
-            .process_full_image(default_process_request(bytes))
-            .await
-        {
+        let response = match proc_api.process_full_image(default_process_request(bytes)).await {
             Ok(response) => response,
             Err(err)
                 if err.code == 400
-                    && err
-                        .message
-                        .to_ascii_lowercase()
-                        .contains("not a valid image") =>
+                    && err.message.to_ascii_lowercase().contains("not a valid image") =>
             {
                 println!(
                     "skipping {} -> invalid image payload reported by processor",
@@ -239,10 +208,7 @@ async fn collect_templates(
         };
 
         let Some((embedding, quality)) = extract_face_template(response) else {
-            println!(
-                "skipping {} -> no face embedding in process response",
-                image_path.display()
-            );
+            println!("skipping {} -> no face embedding in process response", image_path.display());
             continue;
         };
 
@@ -253,11 +219,7 @@ async fn collect_templates(
             quality
         );
 
-        templates.push(FaceTemplate {
-            path: image_path.clone(),
-            embedding,
-            quality,
-        });
+        templates.push(FaceTemplate { path: image_path.clone(), embedding, quality });
     }
 
     Ok(templates)
@@ -317,11 +279,7 @@ fn extract_face_template(response: processor::ProcessFullImageResponse) -> Optio
         return None;
     }
 
-    let candidate_index = response
-        .most_prominent_face_idx
-        .try_into()
-        .ok()
-        .unwrap_or(0);
+    let candidate_index = response.most_prominent_face_idx.try_into().ok().unwrap_or(0);
 
     let face = faces.get(candidate_index).or_else(|| faces.first())?;
     if face.embedding.is_empty() {
@@ -366,10 +324,7 @@ fn default_process_request(image: Vec<u8>) -> processor::ProcessFullImageRequest
 
 fn required_env(name: &str) -> Result<String, io::Error> {
     env::var(name).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("required env var {} is not set", name),
-        )
+        io::Error::new(io::ErrorKind::InvalidInput, format!("required env var {} is not set", name))
     })
 }
 
@@ -409,11 +364,7 @@ fn synthetic_template(seed: f64) -> FaceTemplate {
         .map(|index| (((index as f64) + seed) / (SYNTHETIC_DIMENSION as f64)) as f32)
         .collect();
 
-    FaceTemplate {
-        path: PathBuf::from(format!("synthetic-{}", seed)),
-        embedding,
-        quality: 0.9,
-    }
+    FaceTemplate { path: PathBuf::from(format!("synthetic-{}", seed)), embedding, quality: 0.9 }
 }
 
 fn unix_millis() -> u128 {
