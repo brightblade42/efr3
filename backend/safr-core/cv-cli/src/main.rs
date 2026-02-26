@@ -359,10 +359,9 @@ struct Record {
 }
 
 fn read_ext_id(item: &Value) -> Option<String> {
-    item.get("ext_id_str")
+    item.get("ext_id")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .or_else(|| item.get("ext_id").and_then(Value::as_str).map(str::to_string))
         .or_else(|| item.get("ext_id").and_then(Value::as_u64).map(|num| num.to_string()))
 }
 

@@ -95,24 +95,18 @@ pub enum Image {
 }
 
 #[derive(Debug)]
-pub enum IDKind {
-    String(String),
-    Num(u64),
-}
-#[derive(Debug)]
 pub enum SearchBy {
     //Name { first_name: String, last_name: String },
     Name { first_name: String, last_name: String },
     //Partial(SearchRequest),
-    ExtID(IDKind),
-    ExtIDS(Vec<IDKind>),
+    ExtID(String),
+    ExtIDS(Vec<String>),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EnrollmentCreateResult {
     pub fr_id: String,
-    pub ext_id: u64,
-    pub ext_id_str: String,
+    pub ext_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -123,8 +117,7 @@ pub struct EnrollmentDeleteResult {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EnrollmentRosterItem {
     pub fr_id: Option<String>,
-    pub ext_id: u64,
-    pub ext_id_str: String,
+    pub ext_id: String,
     pub details: Value,
 }
 

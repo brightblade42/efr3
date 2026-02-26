@@ -1,7 +1,7 @@
-use sqlx::{FromRow, PgPool};
+use sqlx::PgPool;
 
 use crate::repo::{
-    EnrollmentLogRecord, EnrollmentMetadataRecord, EnrollmentResetRecord, ExternalId, ImageRecord,
+    EnrollmentLogRecord, EnrollmentMetadataRecord, EnrollmentResetRecord, ImageRecord,
     ProfileRecord, RegistrationErrorRecord, RepoError, RepoResult,
 };
 
@@ -30,11 +30,11 @@ impl SqlxFrRepository {
                 fr_id = coalesce(excluded.fr_id, eyefr.profiles.fr_id)
             "#,
         )
-        .bind(profile.external_id.as_str())
+        .bind(&profile.ext_id)
         .bind(&profile.last_name)
         .bind(&profile.first_name)
         .bind(&profile.middle_name)
-        .bind(&profile.image_url)
+        .bind(&profile.img_url)
         .bind(&profile.raw_data)
         .bind(&profile.fr_id)
         .execute(&self.pool)
@@ -43,54 +43,51 @@ impl SqlxFrRepository {
         Ok(())
     }
 
-    pub async fn get_profile_by_external_id(
-        &self,
-        external_id: &ExternalId,
-    ) -> RepoResult<Option<ProfileRecord>> {
-        let row = sqlx::query_as::<_, ProfileRow>(
+    pub async fn get_profile_by_ext_id(&self, ext_id: &str) -> RepoResult<Option<ProfileRecord>> {
+        let row = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles
             where ext_id = $1
             "#,
         )
-        .bind(external_id.as_str())
+        .bind(ext_id)
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(TryInto::try_into).transpose()
+        Ok(row)
     }
 
-    pub async fn get_profiles_by_external_ids(
+    pub async fn get_profiles_by_ext_ids(
         &self,
-        external_ids: &[String],
+        ext_ids: &[String],
     ) -> RepoResult<Vec<ProfileRecord>> {
-        if external_ids.is_empty() {
+        if ext_ids.is_empty() {
             return Ok(vec![]);
         }
 
-        let rows = sqlx::query_as::<_, ProfileRow>(
+        let rows = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles
             where ext_id = any($1)
             "#,
         )
-        .bind(external_ids)
+        .bind(ext_ids)
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
+        Ok(rows)
     }
 
-    pub async fn delete_profile_by_external_id(&self, external_id: &ExternalId) -> RepoResult<u64> {
+    pub async fn delete_profile_by_ext_id(&self, ext_id: &str) -> RepoResult<u64> {
         let res = sqlx::query(
             r#"
             delete from eyefr.profiles
             where ext_id = $1
             "#,
         )
-        .bind(external_id.as_str())
+        .bind(ext_id)
         .execute(&self.pool)
         .await?;
 
@@ -98,7 +95,7 @@ impl SqlxFrRepository {
     }
 
     pub async fn get_profile_by_fr_id(&self, fr_id: &str) -> RepoResult<Option<ProfileRecord>> {
-        let row = sqlx::query_as::<_, ProfileRow>(
+        let row = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles
@@ -109,7 +106,7 @@ impl SqlxFrRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(TryInto::try_into).transpose()
+        Ok(row)
     }
 
     pub async fn delete_profile_by_fr_id(&self, fr_id: &str) -> RepoResult<u64> {
@@ -132,7 +129,7 @@ impl SqlxFrRepository {
         limit: i64,
     ) -> RepoResult<Vec<ProfileRecord>> {
         let name_pattern = format!("{}%", term.trim());
-        let rows = sqlx::query_as::<_, ProfileRow>(
+        let rows = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles
@@ -146,7 +143,7 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
+        Ok(rows)
     }
 
     pub async fn find_profile_by_name(
@@ -157,7 +154,7 @@ impl SqlxFrRepository {
     ) -> RepoResult<Option<ProfileRecord>> {
         let middle_name = middle_name.map(str::trim).filter(|value| !value.is_empty());
 
-        let row = sqlx::query_as::<_, ProfileRow>(
+        let row = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles
@@ -174,7 +171,7 @@ impl SqlxFrRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(TryInto::try_into).transpose()
+        Ok(row)
     }
 
     pub async fn upsert_image(&self, image: &ImageRecord) -> RepoResult<()> {
@@ -193,7 +190,7 @@ impl SqlxFrRepository {
                 updated_at = now()
             "#,
         )
-        .bind(image.external_id.as_str())
+        .bind(&image.ext_id)
         .bind(&image.data)
         .bind(image.size)
         .bind(&image.url)
@@ -206,32 +203,29 @@ impl SqlxFrRepository {
         Ok(())
     }
 
-    pub async fn get_image_by_external_id(
-        &self,
-        external_id: &ExternalId,
-    ) -> RepoResult<Option<ImageRecord>> {
-        let row = sqlx::query_as::<_, ImageRow>(
+    pub async fn get_image_by_ext_id(&self, ext_id: &str) -> RepoResult<Option<ImageRecord>> {
+        let row = sqlx::query_as::<_, ImageRecord>(
             r#"
             select ext_id, data, size, url, quality, acceptability, raw_data
             from eyefr.images
             where ext_id = $1
             "#,
         )
-        .bind(external_id.as_str())
+        .bind(ext_id)
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(TryInto::try_into).transpose()
+        Ok(row)
     }
 
-    pub async fn delete_image_by_external_id(&self, external_id: &ExternalId) -> RepoResult<u64> {
+    pub async fn delete_image_by_ext_id(&self, ext_id: &str) -> RepoResult<u64> {
         let res = sqlx::query(
             r#"
             delete from eyefr.images
             where ext_id = $1
             "#,
         )
-        .bind(external_id.as_str())
+        .bind(ext_id)
         .execute(&self.pool)
         .await?;
 
@@ -248,7 +242,7 @@ impl SqlxFrRepository {
             values ($1, $2, $3)
             "#,
         )
-        .bind(record.external_id.as_ref().map(|id| id.as_str()))
+        .bind(&record.ext_id)
         .bind(&record.fr_id)
         .bind(&record.message)
         .execute(&self.pool)
@@ -257,12 +251,12 @@ impl SqlxFrRepository {
         Ok(())
     }
 
-    pub async fn get_registration_errors_by_external_id(
+    pub async fn get_registration_errors_by_ext_id(
         &self,
-        external_id: &ExternalId,
+        ext_id: &str,
         limit: i64,
     ) -> RepoResult<Vec<RegistrationErrorRecord>> {
-        let rows = sqlx::query_as::<_, RegistrationErrorRow>(
+        let rows = sqlx::query_as::<_, RegistrationErrorRecord>(
             r#"
             select ext_id, fr_id, message
             from eyefr.registration_errors
@@ -271,12 +265,12 @@ impl SqlxFrRepository {
             limit $2
             "#,
         )
-        .bind(external_id.as_str())
+        .bind(ext_id)
         .bind(normalized_limit(limit))
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
+        Ok(rows)
     }
 
     pub async fn append_enrollment_log(
@@ -307,7 +301,7 @@ impl SqlxFrRepository {
         code: &str,
         limit: i64,
     ) -> RepoResult<Vec<EnrollmentLogRecord>> {
-        let rows = sqlx::query_as::<_, EnrollmentLogRow>(
+        let rows = sqlx::query_as::<_, EnrollmentLogRecord>(
             r#"
             select id, code, payload, retry_count
             from logs.enrollment
@@ -321,11 +315,11 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(EnrollmentLogRecord::from).collect())
+        Ok(rows)
     }
 
     pub async fn get_enrollment_logs(&self, limit: i64) -> RepoResult<Vec<EnrollmentLogRecord>> {
-        let rows = sqlx::query_as::<_, EnrollmentLogRow>(
+        let rows = sqlx::query_as::<_, EnrollmentLogRecord>(
             r#"
             select id, code, payload, retry_count
             from logs.enrollment
@@ -337,11 +331,11 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(EnrollmentLogRecord::from).collect())
+        Ok(rows)
     }
 
     pub async fn get_enrollment_roster(&self, limit: i64) -> RepoResult<Vec<ProfileRecord>> {
-        let rows = sqlx::query_as::<_, ProfileRow>(
+        let rows = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles
@@ -353,11 +347,11 @@ impl SqlxFrRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()
+        Ok(rows)
     }
 
     pub async fn get_enrollment_metadata(&self) -> RepoResult<EnrollmentMetadataRecord> {
-        let row = sqlx::query_as::<_, EnrollmentMetadataRow>(
+        let row = sqlx::query_as::<_, EnrollmentMetadataRecord>(
             r#"
             select
                 (select count(*)::bigint from eyefr.profiles) as profiles_total,
@@ -370,7 +364,7 @@ impl SqlxFrRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(EnrollmentMetadataRecord::from(row))
+        Ok(row)
     }
 
     pub async fn reset_enrollment_state(&self) -> RepoResult<EnrollmentResetRecord> {
@@ -416,115 +410,6 @@ impl SqlxFrRepository {
             registration_errors_deleted: reg_res.rows_affected() as i64,
             enrollment_logs_deleted: log_res.rows_affected() as i64,
         })
-    }
-}
-
-#[derive(Debug, FromRow)]
-struct ProfileRow {
-    ext_id: String,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    middle_name: Option<String>,
-    img_url: Option<String>,
-    raw_data: Option<serde_json::Value>,
-    fr_id: Option<String>,
-}
-
-#[derive(Debug, FromRow)]
-struct ImageRow {
-    ext_id: String,
-    data: Vec<u8>,
-    size: Option<f32>,
-    url: Option<String>,
-    quality: f32,
-    acceptability: f32,
-    raw_data: Option<serde_json::Value>,
-}
-
-#[derive(Debug, FromRow)]
-struct RegistrationErrorRow {
-    ext_id: Option<String>,
-    fr_id: Option<String>,
-    message: Option<String>,
-}
-
-#[derive(Debug, FromRow)]
-struct EnrollmentLogRow {
-    id: i64,
-    code: String,
-    payload: serde_json::Value,
-    retry_count: Option<i32>,
-}
-
-#[derive(Debug, FromRow)]
-struct EnrollmentMetadataRow {
-    profiles_total: i64,
-    profiles_with_fr_id: i64,
-    images_total: i64,
-    registration_errors_total: i64,
-    enrollment_logs_total: i64,
-}
-
-impl TryFrom<ProfileRow> for ProfileRecord {
-    type Error = RepoError;
-
-    fn try_from(row: ProfileRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            external_id: ExternalId::try_from(row.ext_id)?,
-            first_name: row.first_name,
-            last_name: row.last_name,
-            middle_name: row.middle_name,
-            image_url: row.img_url,
-            raw_data: row.raw_data,
-            fr_id: row.fr_id,
-        })
-    }
-}
-
-impl TryFrom<ImageRow> for ImageRecord {
-    type Error = RepoError;
-
-    fn try_from(row: ImageRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            external_id: ExternalId::try_from(row.ext_id)?,
-            data: row.data,
-            size: row.size,
-            url: row.url,
-            quality: row.quality,
-            acceptability: row.acceptability,
-            raw_data: row.raw_data,
-        })
-    }
-}
-
-impl TryFrom<RegistrationErrorRow> for RegistrationErrorRecord {
-    type Error = RepoError;
-
-    fn try_from(row: RegistrationErrorRow) -> Result<Self, Self::Error> {
-        let external_id = match row.ext_id {
-            Some(ext_id) => Some(ExternalId::try_from(ext_id)?),
-            None => None,
-        };
-
-        Ok(Self { external_id, fr_id: row.fr_id, message: row.message })
-    }
-}
-
-impl From<EnrollmentLogRow> for EnrollmentLogRecord {
-    fn from(row: EnrollmentLogRow) -> Self {
-        Self { id: row.id, code: row.code, payload: row.payload, retry_count: row.retry_count }
-    }
-}
-
-impl From<EnrollmentMetadataRow> for EnrollmentMetadataRecord {
-    fn from(row: EnrollmentMetadataRow) -> Self {
-        Self {
-            profiles_total: row.profiles_total,
-            profiles_with_fr_id: row.profiles_with_fr_id,
-            images_total: row.images_total,
-            registration_errors_total: row.registration_errors_total,
-            enrollment_logs_total: row.enrollment_logs_total,
-        }
     }
 }
 

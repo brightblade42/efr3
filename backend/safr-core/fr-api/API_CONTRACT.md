@@ -11,9 +11,7 @@ This document captures the current request/response contract for migrated `/fr/v
 
 - `ccode` is a TPass identifier and is always numeric (`u64`).
 - `ext_id` is an external identifier and is always treated as string in FR internals.
-  - API responses may include both:
-    - `ext_id` (numeric compatibility field)
-    - `ext_id_str` (canonical string field)
+  - API responses use `ext_id` as a string field.
 
 ## Error Behavior
 
@@ -140,8 +138,7 @@ There are two error classes:
 - Success response:
   - JSON object including:
     - `fr_id`
-    - `ext_id` (numeric compatibility)
-    - `ext_id_str` (canonical string)
+    - `ext_id` (string)
 - Contract checks:
   - Missing `details` with image present => HTTP `200` + standard error envelope (`code=0`)
   - Missing external id in `details` => HTTP `200` + standard error envelope (`code=1050`)

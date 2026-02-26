@@ -9,7 +9,7 @@ use super::{
     },
     FRBackend, FRResult, MatchConfig,
 };
-use crate::repo::EnrollmentMetadataRecord;
+use crate::repo::{EnrollmentMetadataRecord, ProfileRecord};
 use crate::{
     utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
     EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult,
@@ -27,17 +27,6 @@ pub struct PVBackend {
     proc_api: PVProcGrpcApi,
     ident_api: PVIdentityGrpcApi,
     db: PgPool,
-}
-
-#[derive(sqlx::FromRow)]
-struct EnrollmentRosterRow {
-    fr_id: Option<String>,
-    ext_id: String,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    middle_name: Option<String>,
-    img_url: Option<String>,
-    raw_data: Option<Value>,
 }
 
 impl PVBackend {
@@ -281,22 +270,17 @@ impl PVBackend {
             .collect()
     }
 
-    fn profile_to_enrollment_item(row: EnrollmentRosterRow) -> EnrollmentRosterItem {
-        let details = row.raw_data.unwrap_or_else(|| {
+    fn profile_to_enrollment_item(profile: ProfileRecord) -> EnrollmentRosterItem {
+        let details = profile.raw_data.unwrap_or_else(|| {
             json!({
-                "first_name": row.first_name,
-                "last_name": row.last_name,
-                "middle_name": row.middle_name,
-                "img_url": row.img_url,
+                "first_name": profile.first_name,
+                "last_name": profile.last_name,
+                "middle_name": profile.middle_name,
+                "img_url": profile.img_url,
             })
         });
 
-        EnrollmentRosterItem {
-            fr_id: row.fr_id,
-            ext_id: row.ext_id.parse::<u64>().unwrap_or(0),
-            ext_id_str: row.ext_id,
-            details,
-        }
+        EnrollmentRosterItem { fr_id: profile.fr_id, ext_id: profile.ext_id, details }
     }
 }
 
@@ -364,8 +348,7 @@ impl FRBackend for PVBackend {
 
         let fr_id = ident.id;
         let eid_str = ext_id.unwrap_or_default();
-        let eid_num = eid_str.parse::<u64>().unwrap_or(0);
-        Ok(EnrollmentCreateResult { fr_id, ext_id: eid_num, ext_id_str: eid_str })
+        Ok(EnrollmentCreateResult { fr_id, ext_id: eid_str })
     }
 
     async fn delete_enrollment(&self, face_id: &str) -> FRResult<EnrollmentDeleteResult> {
@@ -420,7 +403,7 @@ impl FRBackend for PVBackend {
     }
 
     async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
-        let rows = sqlx::query_as::<_, EnrollmentRosterRow>(
+        let rows = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles
@@ -523,7 +506,7 @@ impl FRBackend for PVBackend {
         name: &str,
     ) -> FRResult<Vec<EnrollmentRosterItem>> {
         let like_pattern = format!("{}%", name.trim());
-        let rows = sqlx::query_as::<_, EnrollmentRosterRow>(
+        let rows = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
             from eyefr.profiles

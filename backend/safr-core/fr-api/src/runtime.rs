@@ -138,8 +138,7 @@ impl FRBackend for FREngine {
             #[cfg(test)]
             Self::Mock => Ok(EnrollmentCreateResult {
                 fr_id: "mock-fr-id".to_string(),
-                ext_id: 123,
-                ext_id_str: "123".to_string(),
+                ext_id: "123".to_string(),
             }),
         }
     }
@@ -172,8 +171,7 @@ impl FRBackend for FREngine {
             #[cfg(test)]
             Self::Mock => Ok(vec![EnrollmentRosterItem {
                 fr_id: Some("mock-fr-id".to_string()),
-                ext_id: 123,
-                ext_id_str: "123".to_string(),
+                ext_id: "123".to_string(),
                 details: json!({"first_name":"Test","last_name":"User"}),
             }]),
         }

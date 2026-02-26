@@ -1,6 +1,4 @@
-use crate::{
-    remote::Remote, EnrollData, EnrollDetails, FRError, FRResult, IDKind, Image, SearchBy,
-};
+use crate::{remote::Remote, EnrollData, EnrollDetails, FRError, FRResult, Image, SearchBy};
 
 use libtpass::api::TPassClient;
 use serde_json::{json, Value};
@@ -152,7 +150,14 @@ impl Remote for TPassClient {
                 info!("{:?}", sr);
                 sr
             }
-            SearchBy::ExtID(IDKind::Num(ccode)) => {
+            SearchBy::ExtID(ext_id) => {
+                let ccode = ext_id.trim().parse::<u64>().map_err(|_| {
+                    FRError::with_code(
+                        1002,
+                        "search_one doesn't support provided ID type. ID must be numeric for TPass",
+                    )
+                })?;
+
                 let sr = match self.get_clients_by_ccode(vec![ccode]).await?.first() {
                     Some(item) => {
                         let x = item["imgUrl"].as_str().ok_or_else(|| {
@@ -175,7 +180,7 @@ impl Remote for TPassClient {
             _ => {
                 return Err(FRError::with_code(
                     1002,
-                    "search_one doesn't support provided ID type. ID must be u64",
+                    "search_one doesn't support the provided search mode",
                 ));
             }
         };
@@ -205,15 +210,22 @@ impl Remote for TPassClient {
         search: SearchBy,
         include_img: bool,
     ) -> FRResult<Vec<SearchResult>> {
-        if let SearchBy::ExtIDS(ccodes) = search {
-            let mut ncode = vec![];
-            for idk in ccodes {
-                if let IDKind::Num(code) = idk {
-                    ncode.push(code)
+        if let SearchBy::ExtIDS(ext_ids) = search {
+            let mut ccodes: Vec<u64> = Vec::with_capacity(ext_ids.len());
+            for ext_id in ext_ids {
+                match ext_id.trim().parse::<u64>() {
+                    Ok(code) => ccodes.push(code),
+                    Err(_) => {
+                        warn!("search_many skipping non-numeric ext_id '{}' for TPass", ext_id)
+                    }
                 }
             }
 
-            let res = self.get_clients_by_ccode(ncode).await?;
+            if ccodes.is_empty() {
+                return Ok(vec![]);
+            }
+
+            let res = self.get_clients_by_ccode(ccodes).await?;
 
             let mut out = Vec::with_capacity(res.len());
             for details in res {

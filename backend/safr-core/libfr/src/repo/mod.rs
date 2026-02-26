@@ -3,7 +3,7 @@ pub mod types;
 
 pub use self::sqlx::SqlxFrRepository;
 pub use self::types::{
-    EnrollmentLogRecord, EnrollmentMetadataRecord, EnrollmentResetRecord, ExternalId, ImageRecord,
+    EnrollmentLogRecord, EnrollmentMetadataRecord, EnrollmentResetRecord, ImageRecord,
     ProfileRecord, RegistrationErrorRecord,
 };
 

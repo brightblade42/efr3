@@ -6,12 +6,12 @@ use libfr::{
     backend::{FRBackend, MatchConfig},
     remote::Remote,
     repo::{
-        EnrollmentMetadataRecord, ExternalId, ImageRecord, ProfileRecord, RegistrationErrorRecord,
+        EnrollmentMetadataRecord, ImageRecord, ProfileRecord, RegistrationErrorRecord,
         SqlxFrRepository,
     },
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
     EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face,
-    GetFaceInfoResult, IDKind, ResetEnrollmentsResult, SearchBy,
+    GetFaceInfoResult, ResetEnrollmentsResult, SearchBy,
 };
 use serde_json::{json, Value};
 use tracing::warn;
@@ -54,31 +54,28 @@ impl FRService {
             FRError::with_code(1050, "An external id is required for create enrollment")
         })?;
 
-        let external_id = ExternalId::new(resolved_ext_id.clone()).map_err(|e| {
-            FRError::with_details(
+        let ext_id = resolved_ext_id.trim().to_string();
+        if ext_id.is_empty() {
+            return Err(FRError::with_code(
                 1052,
                 "Enrollment details provided an invalid external id",
-                json!({
-                    "ext_id": resolved_ext_id,
-                    "error": e.to_string(),
-                }),
-            )
-        })?;
+            ));
+        }
 
-        self.persist_profile_snapshot(&external_id, &details, None).await?;
+        self.persist_profile_snapshot(&ext_id, &details, None).await?;
         self.append_repo_log(
             "enrollment_profile_staged",
             json!({
-                "ext_id": external_id.as_str(),
+                "ext_id": ext_id.as_str(),
             }),
         )
         .await;
 
-        self.persist_image_snapshot(&external_id, &image, &details, 0.0, 0.0).await?;
+        self.persist_image_snapshot(&ext_id, &image, &details, 0.0, 0.0).await?;
         self.append_repo_log(
             "enrollment_image_staged",
             json!({
-                "ext_id": external_id.as_str(),
+                "ext_id": ext_id.as_str(),
                 "bytes": image.len(),
             }),
         )
@@ -88,29 +85,28 @@ impl FRService {
 
         let mut response = match self
             .fr_engine
-            .create_enrollment(backend_input, config, Some(external_id.as_str().to_string()))
+            .create_enrollment(backend_input, config, Some(ext_id.clone()))
             .await
         {
             Ok(response) => response,
             Err(err) => {
-                self.log_create_enrollment_failure(&external_id, &err).await;
+                self.log_create_enrollment_failure(&ext_id, &err).await;
                 return Err(err);
             }
         };
 
         let fr_id = response.fr_id.clone();
-        self.persist_profile_snapshot(&external_id, &details, Some(&fr_id)).await?;
+        self.persist_profile_snapshot(&ext_id, &details, Some(&fr_id)).await?;
         self.append_repo_log(
             "enrollment_identity_created",
             json!({
-                "ext_id": external_id.as_str(),
+                "ext_id": ext_id.as_str(),
                 "fr_id": fr_id,
             }),
         )
         .await;
 
-        response.ext_id_str = external_id.as_str().to_string();
-        response.ext_id = external_id.as_str().parse::<u64>().unwrap_or(0);
+        response.ext_id = ext_id;
 
         Ok(response)
     }
@@ -198,51 +194,62 @@ impl FRService {
             }
         }
 
-        let ccodes: Vec<u64> = fr_identities
+        let ext_ids: Vec<String> = fr_identities
             .iter()
             .flat_map(|fr| &fr.possible_matches)
-            .filter_map(|pm| pm.ext_id.trim().parse::<u64>().ok())
-            .filter(|ccode| *ccode != 0)
+            .map(|pm| pm.ext_id.trim())
+            .filter(|ext_id| !ext_id.is_empty())
+            .map(str::to_string)
             .collect();
 
-        if ccodes.is_empty() {
+        if ext_ids.is_empty() {
             return Ok(fr_identities);
         }
 
-        let search_ids: Vec<IDKind> = ccodes
-            .into_iter()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .map(IDKind::Num)
-            .collect();
+        let search_ids: Vec<String> =
+            ext_ids.into_iter().collect::<HashSet<_>>().into_iter().collect();
 
         let remote_matches = self.remote.search_many(SearchBy::ExtIDS(search_ids), false).await?;
 
-        let details_by_ccode: HashMap<u64, Value> = remote_matches
+        let details_by_ext_id: HashMap<String, Value> = remote_matches
             .into_iter()
             .filter_map(|item| {
                 let details = item.details?;
-                let ccode = item
+                let ext_id = item
                     .id
                     .as_deref()
-                    .and_then(|id| id.trim().parse::<u64>().ok())
-                    .or_else(|| details.get("ccode").and_then(Value::as_u64))?;
-                Some((ccode, details))
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        details.get("ccode").and_then(Value::as_u64).map(|num| num.to_string())
+                    })
+                    .or_else(|| {
+                        details
+                            .get("ext_id")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|id| !id.is_empty())
+                            .map(str::to_string)
+                    })?;
+
+                Some((ext_id, details))
             })
             .collect();
 
-        if details_by_ccode.is_empty() {
+        if details_by_ext_id.is_empty() {
             return Ok(fr_identities);
         }
 
         for fr_ident in &mut fr_identities {
             for possible_match in &mut fr_ident.possible_matches {
-                if let Some(ccode) =
-                    possible_match.ext_id.trim().parse::<u64>().ok().filter(|ccode| *ccode != 0)
-                {
-                    if let Some(details) = details_by_ccode.get(&ccode) {
-                        possible_match.details = Some(details.clone());
-                    }
+                let key = possible_match.ext_id.trim();
+                if key.is_empty() {
+                    continue;
+                }
+
+                if let Some(details) = details_by_ext_id.get(key) {
+                    possible_match.details = Some(details.clone());
                 }
             }
         }
@@ -292,19 +299,19 @@ impl FRService {
 
     async fn persist_profile_snapshot(
         &self,
-        external_id: &ExternalId,
+        ext_id: &str,
         details: &EnrollDetails,
         fr_id: Option<&str>,
     ) -> FRResult<()> {
-        let (first_name, last_name, middle_name, image_url, raw_data) =
+        let (first_name, last_name, middle_name, img_url, raw_data) =
             Self::extract_profile_fields(Some(details));
 
         let profile = ProfileRecord {
-            external_id: external_id.clone(),
+            ext_id: ext_id.to_string(),
             first_name,
             last_name,
             middle_name,
-            image_url,
+            img_url,
             raw_data,
             fr_id: fr_id.map(str::to_string),
         };
@@ -312,7 +319,7 @@ impl FRService {
         if let Err(e) = self.fr_repo.upsert_profile(&profile).await {
             let details = json!({
                 "fr_id": fr_id,
-                "ext_id": external_id.as_str(),
+                "ext_id": ext_id,
                 "error": e.to_string(),
             });
             self.append_repo_log("profile_upsert_error", details.clone()).await;
@@ -328,18 +335,18 @@ impl FRService {
 
     async fn persist_image_snapshot(
         &self,
-        external_id: &ExternalId,
+        ext_id: &str,
         image: &Bytes,
         details: &EnrollDetails,
         quality: f32,
         acceptability: f32,
     ) -> FRResult<()> {
-        let (_, _, _, image_url, raw_data) = Self::extract_profile_fields(Some(details));
+        let (_, _, _, img_url, raw_data) = Self::extract_profile_fields(Some(details));
         let image_record = ImageRecord {
-            external_id: external_id.clone(),
+            ext_id: ext_id.to_string(),
             data: image.to_vec(),
             size: Some(image.len() as f32),
-            url: image_url,
+            url: img_url,
             quality,
             acceptability,
             raw_data,
@@ -347,7 +354,7 @@ impl FRService {
 
         if let Err(e) = self.fr_repo.upsert_image(&image_record).await {
             let details = json!({
-                "ext_id": external_id.as_str(),
+                "ext_id": ext_id,
                 "error": e.to_string(),
             });
             self.append_repo_log("image_upsert_error", details.clone()).await;
@@ -361,9 +368,9 @@ impl FRService {
         Ok(())
     }
 
-    async fn log_create_enrollment_failure(&self, external_id: &ExternalId, err: &FRError) {
+    async fn log_create_enrollment_failure(&self, ext_id: &str, err: &FRError) {
         let record = RegistrationErrorRecord {
-            external_id: Some(external_id.clone()),
+            ext_id: Some(ext_id.to_string()),
             fr_id: None,
             message: Some(err.message.clone()),
         };
@@ -379,7 +386,7 @@ impl FRService {
         };
 
         let payload = json!({
-            "ext_id": external_id.as_str(),
+            "ext_id": ext_id,
             "code": err.code,
             "message": err.message,
             "details": err.details.clone(),
@@ -428,18 +435,14 @@ impl FRService {
                 "first_name": profile.first_name,
                 "last_name": profile.last_name,
                 "middle_name": profile.middle_name,
-                "img_url": profile.image_url,
+                "img_url": profile.img_url,
             })
         });
 
-        EnrollmentRosterItem {
-            fr_id: profile.fr_id,
-            ext_id: profile.external_id.as_str().parse::<u64>().unwrap_or(0),
-            ext_id_str: profile.external_id.as_str().to_string(),
-            details,
-        }
+        EnrollmentRosterItem { fr_id: profile.fr_id, ext_id: profile.ext_id, details }
     }
 
+    //TODO: this seems crazy
     fn extract_ext_id_from_details(details: &EnrollDetails) -> Option<String> {
         match details {
             EnrollDetails::TPass(data) => data

@@ -1,6 +1,4 @@
-use libfr::repo::{
-    ExternalId, ImageRecord, ProfileRecord, RegistrationErrorRecord, SqlxFrRepository,
-};
+use libfr::repo::{ImageRecord, ProfileRecord, RegistrationErrorRecord, SqlxFrRepository};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -16,13 +14,13 @@ const IDENTITY_DB_URL_ENV: &str = "IDENTITY_DB_URL";
 #[ignore = "requires writable integration database"]
 async fn upsert_get_delete_profile_roundtrip() -> TestResult {
     let (pool, repo) = connect_repo().await?;
-    let external_id = ExternalId::new(format!("eyefr-rs-test-{}", unix_millis()))?;
+    let ext_id = format!("eyefr-rs-test-{}", unix_millis());
     let profile = ProfileRecord {
-        external_id: external_id.clone(),
+        ext_id: ext_id.clone(),
         first_name: Some("Integration".to_string()),
         last_name: Some("Roundtrip".to_string()),
         middle_name: Some("DB".to_string()),
-        image_url: Some("https://example.test/image.jpg".to_string()),
+        img_url: Some("https://example.test/image.jpg".to_string()),
         raw_data: Some(json!({"type": "integration-test", "compId": 999})),
         fr_id: None,
     };
@@ -30,18 +28,18 @@ async fn upsert_get_delete_profile_roundtrip() -> TestResult {
     repo.upsert_profile(&profile).await?;
 
     let fetched = repo
-        .get_profile_by_external_id(&external_id)
+        .get_profile_by_ext_id(&ext_id)
         .await?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "profile not found after upsert"))?;
 
-    assert_eq!(fetched.external_id.as_str(), external_id.as_str());
+    assert_eq!(fetched.ext_id, ext_id);
     assert_eq!(fetched.first_name.as_deref(), Some("Integration"));
     assert_eq!(fetched.last_name.as_deref(), Some("Roundtrip"));
 
-    let deleted = repo.delete_profile_by_external_id(&external_id).await?;
+    let deleted = repo.delete_profile_by_ext_id(&ext_id).await?;
     assert_eq!(deleted, 1, "expected to delete exactly one profile row");
 
-    let maybe_deleted = repo.get_profile_by_external_id(&external_id).await?;
+    let maybe_deleted = repo.get_profile_by_ext_id(&ext_id).await?;
     assert!(maybe_deleted.is_none(), "profile should not exist after delete");
 
     pool.close().await;
@@ -54,14 +52,14 @@ async fn upsert_get_delete_profile_roundtrip() -> TestResult {
 async fn search_profiles_by_last_name_roundtrip() -> TestResult {
     let (pool, repo) = connect_repo().await?;
     let marker = format!("RsSearch{}", unix_millis());
-    let external_id = ExternalId::new(format!("eyefr-rs-test-search-{}", unix_millis()))?;
+    let ext_id = format!("eyefr-rs-test-search-{}", unix_millis());
 
     let profile = ProfileRecord {
-        external_id: external_id.clone(),
+        ext_id: ext_id.clone(),
         first_name: Some("Search".to_string()),
         last_name: Some(marker.clone()),
         middle_name: None,
-        image_url: None,
+        img_url: None,
         raw_data: Some(json!({"type": "integration-search"})),
         fr_id: Some(format!("fr-{}", marker)),
     };
@@ -70,7 +68,7 @@ async fn search_profiles_by_last_name_roundtrip() -> TestResult {
 
     let hits = repo.search_profiles_by_last_name(&marker, 10).await?;
     assert!(
-        hits.iter().any(|item| item.external_id.as_str() == external_id.as_str()),
+        hits.iter().any(|item| item.ext_id == ext_id),
         "expected search results to include inserted profile"
     );
 
@@ -88,7 +86,7 @@ async fn search_profiles_by_last_name_roundtrip() -> TestResult {
         .find_profile_by_name("Search", &marker, None)
         .await?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "expected exact name match"))?;
-    assert_eq!(exact.external_id.as_str(), external_id.as_str());
+    assert_eq!(exact.ext_id, ext_id);
 
     let case_insensitive = repo
         .find_profile_by_name("search", &marker.to_lowercase(), None)
@@ -96,9 +94,9 @@ async fn search_profiles_by_last_name_roundtrip() -> TestResult {
         .ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotFound, "expected case-insensitive name match")
         })?;
-    assert_eq!(case_insensitive.external_id.as_str(), external_id.as_str());
+    assert_eq!(case_insensitive.ext_id, ext_id);
 
-    let deleted = repo.delete_profile_by_external_id(&external_id).await?;
+    let deleted = repo.delete_profile_by_ext_id(&ext_id).await?;
     assert_eq!(deleted, 1, "expected to delete inserted search profile");
 
     pool.close().await;
@@ -110,9 +108,9 @@ async fn search_profiles_by_last_name_roundtrip() -> TestResult {
 #[ignore = "requires writable integration database"]
 async fn upsert_get_delete_image_roundtrip() -> TestResult {
     let (pool, repo) = connect_repo().await?;
-    let external_id = ExternalId::new(format!("eyefr-rs-test-img-{}", unix_millis()))?;
+    let ext_id = format!("eyefr-rs-test-img-{}", unix_millis());
     let image = ImageRecord {
-        external_id: external_id.clone(),
+        ext_id: ext_id.clone(),
         data: vec![1, 2, 3, 4, 5],
         size: Some(5.0),
         url: Some("https://example.test/image.jpg".to_string()),
@@ -124,19 +122,19 @@ async fn upsert_get_delete_image_roundtrip() -> TestResult {
     repo.upsert_image(&image).await?;
 
     let fetched = repo
-        .get_image_by_external_id(&external_id)
+        .get_image_by_ext_id(&ext_id)
         .await?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "image not found after upsert"))?;
 
-    assert_eq!(fetched.external_id.as_str(), external_id.as_str());
+    assert_eq!(fetched.ext_id, ext_id);
     assert_eq!(fetched.data, image.data);
     assert_eq!(fetched.quality, image.quality);
     assert_eq!(fetched.acceptability, image.acceptability);
 
-    let deleted = repo.delete_image_by_external_id(&external_id).await?;
+    let deleted = repo.delete_image_by_ext_id(&ext_id).await?;
     assert_eq!(deleted, 1, "expected to delete exactly one image row");
 
-    let maybe_deleted = repo.get_image_by_external_id(&external_id).await?;
+    let maybe_deleted = repo.get_image_by_ext_id(&ext_id).await?;
     assert!(maybe_deleted.is_none(), "image should not exist after delete");
 
     pool.close().await;
@@ -149,20 +147,20 @@ async fn upsert_get_delete_image_roundtrip() -> TestResult {
 async fn insert_and_read_fr_logs_roundtrip() -> TestResult {
     let (pool, repo) = connect_repo().await?;
     let marker = format!("eyefr-rs-test-log-{}", unix_millis());
-    let external_id = ExternalId::new(marker.clone())?;
+    let ext_id = marker.clone();
     let reg_message = format!("registration issue {}", marker);
     let enrollment_code = format!("enroll-{}", marker);
     let enrollment_payload = json!({"test_marker": marker});
 
     let reg_error = RegistrationErrorRecord {
-        external_id: Some(external_id.clone()),
+        ext_id: Some(ext_id.clone()),
         fr_id: Some("fr-test-id".to_string()),
         message: Some(reg_message.clone()),
     };
 
     repo.insert_registration_error(&reg_error).await?;
 
-    let reg_rows = repo.get_registration_errors_by_external_id(&external_id, 10).await?;
+    let reg_rows = repo.get_registration_errors_by_ext_id(&ext_id, 10).await?;
     assert!(
         reg_rows.iter().any(|row| row.message.as_deref() == Some(reg_message.as_str())),
         "expected registration error entry with marker"
@@ -188,7 +186,7 @@ async fn insert_and_read_fr_logs_roundtrip() -> TestResult {
         where ext_id = $1 and message = $2
         "#,
     )
-    .bind(external_id.as_str())
+    .bind(&ext_id)
     .bind(&reg_message)
     .execute(&pool)
     .await?;

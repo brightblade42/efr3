@@ -3,7 +3,7 @@ use axum::{
     Json,
 };
 use libfr::backend::MatchConfig;
-use libfr::repo::{EnrollmentMetadataRecord, ExternalId};
+use libfr::repo::EnrollmentMetadataRecord;
 use libfr::{
     AddFaceResult, EnrollmentCreateResult, EnrollmentDeleteResult, EnrollmentRosterItem,
     GetFaceInfoResult, ResetEnrollmentsResult,
@@ -148,27 +148,25 @@ async fn resolve_fr_id_for_delete(
             Ok(trimmed.to_string())
         }
         DeleteEnrollmentBy::CCode(ccode) => {
-            let external_id = ExternalId::new(ccode.to_string())
-                .map_err(|e| Generic(format!("invalid external id: {}", e)))?;
+            let ext_id = ccode.to_string();
 
             let profile = app_state
                 .fr_repo
-                .get_profile_by_external_id(&external_id)
+                .get_profile_by_ext_id(&ext_id)
                 .await
                 .map_err(|e| {
                     Generic(format!(
                         "failed to resolve enrollment by external id {}: {}",
-                        external_id.as_str(),
-                        e
+                        ext_id, e
                     ))
                 })?
                 .ok_or_else(|| {
-                    Generic(format!("no enrollment found for external id {}", external_id.as_str()))
+                    Generic(format!("no enrollment found for external id {}", ext_id))
                 })?;
 
-            profile.fr_id.ok_or_else(|| {
-                Generic(format!("profile for external id {} has no fr_id", external_id.as_str()))
-            })
+            profile
+                .fr_id
+                .ok_or_else(|| Generic(format!("profile for external id {} has no fr_id", ext_id)))
         }
         DeleteEnrollmentBy::Name(first, last) => {
             let profile = app_state
