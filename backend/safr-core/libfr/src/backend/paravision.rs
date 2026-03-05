@@ -1,18 +1,20 @@
 use super::{
     pvtypes::{
-        add_faces_request_from_processed, create_identities_request_from_processed,
+        add_faces_request_from_processed, build_identities_request, build_lookup_request,
         default_process_full_image_request, delete_faces_request, delete_identity_request,
         get_faces_request, identity_created_at, list_identities_request,
         liveness_process_full_image_request, lookup_candidates_from_processed,
-        lookup_request_for_embedding, possible_matches_from_lookup, to_add_face_result,
-        to_get_face_info_result,
+        possible_matches_from_lookup, to_add_face_result, to_get_face_info_result,
     },
-    FRBackend, FRResult, MatchConfig,
+    FRBackend, FRResult, MatchConfig, Template,
 };
-use crate::repo::{EnrollmentMetadataRecord, ProfileRecord};
 use crate::{
-    utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentCreateResult,
-    EnrollmentDeleteResult, EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult,
+    backend::IDSet,
+    repo::{EnrollmentMetadataRecord, ProfileRecord},
+};
+use crate::{
+    utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentDeleteResult,
+    EnrollmentRosterItem, FRError, FRIdentity, Face, GetFaceInfoResult, IDPair,
     ResetEnrollmentsBackendResult,
 };
 use bytes::Bytes;
@@ -38,6 +40,8 @@ impl PVBackend {
         }
     }
 
+    //should return the Face , not the Request
+    //we should transform to the request later i think
     async fn get_enrollable_face(
         &self,
         enroll_data: &EnrollData,
@@ -50,14 +54,8 @@ impl PVBackend {
         let process_req = default_process_full_image_request(image, true);
         let img_resp = self.proc_api.process_full_image(process_req).await?;
 
-        if img_resp.most_prominent_face_idx < 0 {
-            return Err(FRError::with_code(
-                1080,
-                "enrollment image must be set to use most prominent face with was not set. ",
-            ));
-        }
-
         let p_idx = img_resp.most_prominent_face_idx as usize;
+
         let faces = if img_resp.faces.is_empty() { None } else { Some(&img_resp.faces) }
             .ok_or_else(|| {
                 FRError::with_code(1081, "enrollment image processing returned no faces")
@@ -88,13 +86,13 @@ impl PVBackend {
             ));
         }
 
-        let emb = (!prom_face.embedding.is_empty())
-            .then_some(prom_face.embedding.clone())
-            .ok_or_else(|| {
-                FRError::with_code(1083, "most prominent face did not include an embedding")
-            })?;
+        // let emb = (!prom_face.embedding.is_empty())
+        //     .then_some(prom_face.embedding.clone())
+        //     .ok_or_else(|| {
+        //         FRError::with_code(1083, "most prominent face did not include an embedding")
+        //     })?;
 
-        let lookup_req = lookup_request_for_embedding(emb, 1);
+        let lookup_req = build_lookup_request(prom_face.embedding.clone(), 1);
         let resp = self.ident_api.lookup(lookup_req).await?;
         let ident = resp.lookup_identities.first();
 
@@ -129,16 +127,10 @@ impl PVBackend {
                         details,
                     ))
                 } else {
-                    Ok(create_identities_request_from_processed(
-                        &img_resp,
-                        config.min_dupe_match,
-                        None,
-                    ))
+                    Ok(build_identities_request(&img_resp, config.min_dupe_match, None))
                 }
             }
-            None => {
-                Ok(create_identities_request_from_processed(&img_resp, config.min_dupe_match, None))
-            }
+            None => Ok(build_identities_request(&img_resp, config.min_dupe_match, None)),
         }
     }
 
@@ -161,7 +153,9 @@ impl PVBackend {
         };
 
         let res = sqlx::query(
-            r" INSERT into paravision.enrollment_log (action,error,message,details) VALUES ($1,$2,$3,$4) ",
+            //#log
+            //r" INSERT into paravision.enrollment_log (action,error,message,details) VALUES ($1,$2,$3,$4) ",
+            r" INSERT into logs.enrollment(code,error,message,details) VALUES ($1,$2,$3,$4) ",
         )
         .bind(action)
         .bind(e_val)
@@ -262,6 +256,7 @@ impl PVBackend {
                     .unwrap_or_default(),
             })
             .filter(|fr_identity| {
+                //make sure the first possible match clears the threshold,if the first doesn't , none of the other will either.
                 fr_identity
                     .possible_matches
                     .first()
@@ -285,34 +280,40 @@ impl PVBackend {
 }
 
 impl FRBackend for PVBackend {
+    async fn validate_image(&self, image: Bytes) -> FRResult<Vec<Face>> {
+        Ok(vec![])
+    }
+
+    async fn generate_template(&self, image: Bytes) -> FRResult<Vec<Template>> {
+        Ok(vec![])
+    }
+
+    async fn liveness_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
+        Ok(vec![])
+    }
+    async fn quality_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
+        Ok(vec![])
+    }
+
+    async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet> {
+        Ok(IDSet { fr_id: "abc_123".into(), ext_id: ext_id.into() })
+    }
+
     async fn create_enrollment(
         &self,
-        enroll_data: EnrollData,
+        enroll_data: &EnrollData,
         config: MatchConfig,
-        ext_id: Option<String>,
-    ) -> FRResult<EnrollmentCreateResult> {
-        if enroll_data.image.is_none() {
-            return Err(FRError::with_code(
-                1010,
-                "An image is required for enrollment but was not found",
-            ));
-        }
-
-        let ident_req = self.get_enrollable_face(&enroll_data, config).await;
-        let details = match enroll_data.details {
-            Some(details) => details,
-            None => {
-                return Err(FRError::with_code(
-                    1011,
-                    "Enrollment details were not provided or could not be resolved",
-                ));
-            }
-        };
+        ext_id: &str,
+    ) -> FRResult<IDPair> {
+        //TODO: move this is check dupe.
+        let ident_req = self.get_enrollable_face(enroll_data, config).await;
+        let details = enroll_data.details.as_ref().unwrap();
 
         let mut id_req = match ident_req {
             Ok(id_req) => id_req,
             Err(precheck_err) => {
-                self.log_enroll_err("create_enrollment", &precheck_err, &details).await;
+                //TODO: is this really what we want?
+                self.log_enroll_err("create_enrollment", &precheck_err, details).await;
                 let value = json!({
                     "precheck": precheck_err.details.clone(),
                     "enrollment": details,
@@ -321,9 +322,10 @@ impl FRBackend for PVBackend {
             }
         };
 
-        id_req.external_ids = ext_id.clone().into_iter().collect();
+        id_req.external_ids = vec![ext_id.to_string()];
         let ident_res = self.ident_api.create_identities(id_req).await;
 
+        //TODO: this looks sus
         let ident = match ident_res {
             Ok(idents) if !idents.identities.is_empty() => {
                 idents.identities.into_iter().next().ok_or_else(|| {
@@ -348,7 +350,7 @@ impl FRBackend for PVBackend {
 
         let fr_id = ident.id;
         let eid_str = ext_id.unwrap_or_default();
-        Ok(EnrollmentCreateResult { fr_id, ext_id: eid_str })
+        Ok(IDPair { fr_id, ext_id: eid_str })
     }
 
     async fn delete_enrollment(&self, face_id: &str) -> FRResult<EnrollmentDeleteResult> {
@@ -450,6 +452,7 @@ impl FRBackend for PVBackend {
     }
 
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
+        //TODO: not sure this is actually correct
         let process_req = default_process_full_image_request(image, true);
         let img_resp = self.proc_api.process_full_image(process_req).await?;
 
@@ -467,6 +470,7 @@ impl FRBackend for PVBackend {
             return Ok(vec![]);
         }
 
+        //TODO: is this necessary?
         if lookup_identities.len() != faces.len() {
             warn!(
                 "recognize face/lookup count mismatch: faces={}, lookup_sets={}",

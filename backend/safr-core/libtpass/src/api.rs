@@ -108,6 +108,26 @@ impl TPassClient {
         Ok(())
     }
 
+    async fn validate_response(
+        res: reqwest::Response,
+        endpoint: &str,
+    ) -> TResult<Option<TPassProfile>> {
+        let status = res.status();
+        //TODO: find out from Sherwin if this is the success path, i forget.
+        if !status.is_success() {
+            warn!("TPass endpoint {} returned non-success status {}", endpoint, status);
+            return Err(TPassError::GenericError(Box::new(std::io::Error::other(format!(
+                "empty response body from {endpoint} ({status})"
+            )))));
+        }
+        if status == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+
+        //TODO: we may want to wrap the error here instead of punting
+        Ok(Some(res.json::<TPassProfile>().await?))
+    }
+
     async fn parse_json_value_response(res: reqwest::Response, endpoint: &str) -> TResult<Value> {
         let status = res.status();
         //TODO: find out from Sherwin if this is the success path, i forget.
@@ -334,7 +354,7 @@ impl TPassClient {
     async fn get_clients_by_ccode_report(
         &self,
         ccodes: Vec<u64>,
-    ) -> TResult<BatchCallResult<Value>> {
+    ) -> TResult<BatchCallResult<TPassProfile>> {
         let urls: Vec<String> = ccodes
             .into_iter()
             .map(|ccode| format!("{}api/clients/load?id={}", &self.conf.url, ccode))
@@ -349,7 +369,7 @@ impl TPassClient {
 
                 async move {
                     let result = match client.get(&url).bearer_auth(ts).send().await {
-                        Ok(res) => TPassClient::parse_json_value_response(res, &url).await,
+                        Ok(res) => TPassClient::validate_response(res, &url).await,
                         Err(e) => Err(TPassError::from(e)),
                     };
                     (url, result)
@@ -357,17 +377,22 @@ impl TPassClient {
             })
             .buffer_unordered(PARALLEL_REQUESTS);
 
-        let responses = futures.collect::<Vec<(String, TResult<Value>)>>().await;
+        let responses = futures.collect::<Vec<(String, TResult<Option<TPassProfile>>)>>().await;
 
-        let mut items: Vec<Value> = Vec::new();
+        let mut items: Vec<TPassProfile> = Vec::new();
         let mut errors: Vec<BatchCallError> = Vec::new();
         let mut succeeded = 0;
 
         for (url, res) in responses {
             match res {
-                Ok(client) => {
+                Ok(Some(client)) => {
                     succeeded += 1;
                     items.push(client);
+                }
+                Ok(None) => {
+                    warn!("get_clients_by_ccode no results for {}", &url);
+                    let msg = format!("get_clients_by_ccode no result for {url}");
+                    errors.push(BatchCallError { target: url, message: msg });
                 }
                 Err(e) => {
                     warn!("get_clients_by_ccode call failed for {}: {}", &url, e);
@@ -379,7 +404,7 @@ impl TPassClient {
         Ok(BatchCallResult::new(items, attempted, succeeded, errors))
     }
 
-    pub async fn get_clients_by_ccode(&self, ccodes: Vec<u64>) -> TResult<Vec<Value>> {
+    pub async fn get_clients_by_ccode(&self, ccodes: Vec<u64>) -> TResult<Vec<TPassProfile>> {
         let batch = self.get_clients_by_ccode_report(ccodes).await?;
         if batch.meta.failed > 0 {
             warn!(
@@ -601,8 +626,7 @@ impl TPassClient {
 
     ///download a tpass image by their generated url
     pub async fn download_tpass_image(&self, url: &str) -> TResult<Bytes> {
-        let bytes = self.client.get(url).send().await?.bytes().await?;
-        Ok(bytes)
+        Ok(self.client.get(url).send().await?.bytes().await?)
     }
 }
 
@@ -817,7 +841,7 @@ impl TPassClient {
     ///returns a Vec<Value> because it's possible to send a partial name which could result in multiple
     ///results. This also searches All statuses.. The same person may be in the system more than once,.
     ///I don't know if this is goood but it exists. Since I can't know which is the real Slim Shady,
-    pub async fn search_by_name(&self, full_name: &str) -> TResult<Vec<Value>> {
+    pub async fn search_by_name(&self, full_name: &str) -> TResult<Vec<TPassProfile>> {
         //build the url.
         let tk = self.get_api_token().await?;
         let status_type = "All"; //case sensitive
@@ -836,16 +860,6 @@ impl TPassClient {
             return Ok(Vec::new()); //we return empty, No content isn't an error
         }
 
-        let res: Value = resp.json().await?;
-
-        let tpr: Result<Vec<Value>, serde_json::Error> = serde_json::from_value(res);
-
-        if let Ok(t_vec) = tpr {
-            return Ok(t_vec);
-            //return Ok(TPassResults {details: t});
-        }
-
-        //Ok(TPassResults {details: Vec::new()})
-        Ok(Vec::new())
+        Ok(resp.json::<Vec<TPassProfile>>().await?)
     }
 }

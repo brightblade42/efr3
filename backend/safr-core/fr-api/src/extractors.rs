@@ -97,7 +97,9 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
             }
             "details" => {
                 debug!("received details for enrollment");
+                //TODO: make sure error is returned if details are NONE.
                 let details = field.text().await.map_err(|x| Generic(x.to_string()))?;
+
                 let enroll_det = serde_json::from_str(&details);
                 debug!("{:?}", &enroll_det);
                 if let Ok(d) = enroll_det {

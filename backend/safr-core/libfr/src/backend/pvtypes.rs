@@ -54,7 +54,7 @@ pub(crate) fn liveness_process_full_image_request(
     }
 }
 
-pub(crate) fn create_identities_request_from_processed(
+pub(crate) fn build_identities_request(
     processed: &processor::ProcessFullImageResponse,
     threshold: f32,
     external_id: Option<String>,
@@ -89,10 +89,7 @@ pub(crate) fn create_identities_request_from_processed(
     }
 }
 
-pub(crate) fn lookup_request_for_embedding(
-    embedding: Vec<f32>,
-    limit: i32,
-) -> identity::LookupRequest {
+pub(crate) fn build_lookup_request(embedding: Vec<f32>, limit: i32) -> identity::LookupRequest {
     identity::LookupRequest {
         group_ids: vec![],
         embeddings: vec![identity::Embedding { embedding }],
@@ -257,6 +254,7 @@ impl From<processor::Face> for Face {
             acceptability: Some(pv_face.acceptability),
             quality: Some(pv_face.quality),
             mask: Some(pv_face.mask),
+            template: None,
             liveness,
         }
     }
@@ -280,6 +278,7 @@ impl From<&processor::Face> for Face {
             acceptability: Some(pv_face.acceptability),
             quality: Some(pv_face.quality),
             mask: Some(pv_face.mask),
+            template: None,
             liveness,
         }
     }

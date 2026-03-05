@@ -6,7 +6,7 @@ source "$SCRIPT_DIR/_common"
 
 IMAGE="${1:-$DEFAULT_IMAGE}"
 FIRST_NAME="${2:-Ryan}"
-LAST_NAME="${3:-Smoke}"
+LAST_NAME="${3:-Martin}"
 EXT_ID="${4:-1001}"
 require_image "$IMAGE"
 

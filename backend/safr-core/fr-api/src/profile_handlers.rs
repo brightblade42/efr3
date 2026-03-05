@@ -2,7 +2,7 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, EnrollmentCreateResult};
+use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, IDPair};
 use libtpass::types::EditProfileRequest;
 use serde_json::Value;
 
@@ -24,9 +24,10 @@ pub async fn edit_profile(
 pub async fn create_profile(
     State(app_state): State<AppState>,
     multipart: Multipart,
-) -> WResult<Json<EnrollmentCreateResult>> {
+) -> WResult<Json<IDPair>> {
     let profile_data = extractors::extract_new_profile_req(multipart).await?;
 
+    //TODO: Remember why we have to create and edit a remote profile.
     let np_resp = app_state.tpass_client.create_profile(&profile_data.profile).await?;
     let mut ep_req = EditProfileRequest::from(&np_resp);
     ep_req.state = Some("".to_string()); //satisfy the fickle TPASS gods.

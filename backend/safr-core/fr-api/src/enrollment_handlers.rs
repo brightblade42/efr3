@@ -5,8 +5,8 @@ use axum::{
 use libfr::backend::MatchConfig;
 use libfr::repo::EnrollmentMetadataRecord;
 use libfr::{
-    AddFaceResult, EnrollmentCreateResult, EnrollmentDeleteResult, EnrollmentRosterItem,
-    GetFaceInfoResult, ResetEnrollmentsResult,
+    AddFaceResult, EnrollmentDeleteResult, EnrollmentRosterItem, GetFaceInfoResult, IDPair,
+    ResetEnrollmentsResult,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,11 +28,11 @@ pub async fn search_enrollment(
 pub async fn create_enrollment(
     State(app_state): State<AppState>,
     multipart: Multipart,
-) -> WResult<Json<EnrollmentCreateResult>> {
+) -> WResult<Json<IDPair>> {
     let enroll_data = extractors::extract_enroll_data(multipart).await?;
     let mconf = MatchConfig::from(&app_state.config);
 
-    let res = app_state.fr_service.create_enrollment(enroll_data, mconf).await?;
+    let res = app_state.fr_service.create_enrollment(&enroll_data, mconf).await?;
     Ok(Json(res))
 }
 

@@ -4,12 +4,12 @@ use bytes::Bytes;
 #[cfg(test)]
 use libfr::EnrollmentFaceInfo;
 use libfr::{
-    backend::{paravision::PVBackend, FRBackend, MatchConfig},
+    backend::{paravision::PVBackend, FRBackend, IDSet, MatchConfig},
     remote::{RegistrationPair, Remote, SearchResult},
     repo::EnrollmentMetadataRecord,
-    AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentCreateResult, EnrollmentDeleteResult,
-    EnrollmentRosterItem, FRIdentity, FRResult, Face, GetFaceInfoResult,
-    ResetEnrollmentsBackendResult, SearchBy,
+    AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentDeleteResult, EnrollmentRosterItem,
+    FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair, ResetEnrollmentsBackendResult, SearchBy,
+    Template,
 };
 use libtpass::api::TPassClient;
 #[cfg(test)]
@@ -73,13 +73,13 @@ impl Remote for RemoteRuntime {
         }
     }
 
-    async fn search_many(
+    async fn search_by_ids(
         &self,
         search: SearchBy,
         include_img: bool,
     ) -> FRResult<Vec<SearchResult>> {
         match self {
-            Self::TPass(client) => client.search_many(search, include_img).await,
+            Self::TPass(client) => client.search_by_ids(search, include_img).await,
         }
     }
 }
@@ -127,19 +127,59 @@ impl FREngine {
 impl FRBackend for FREngine {
     async fn create_enrollment(
         &self,
-        enroll_data: EnrollData,
+        enroll_data: &EnrollData,
         config: MatchConfig,
-        ext_id: Option<String>,
-    ) -> FRResult<EnrollmentCreateResult> {
+        ext_id: &str,
+    ) -> FRResult<IDPair> {
         match self {
             Self::Paravision(backend) => {
                 backend.create_enrollment(enroll_data, config, ext_id).await
             }
             #[cfg(test)]
-            Self::Mock => Ok(EnrollmentCreateResult {
-                fr_id: "mock-fr-id".to_string(),
-                ext_id: "123".to_string(),
-            }),
+            Self::Mock => Ok(IDPair { fr_id: "mock-fr-id".to_string(), ext_id: "123".to_string() }),
+        }
+    }
+
+    //TODO: call this process_full_image. someting to indicate that
+    // this is the kitchen sink call to get a full analysis of an image.
+    // this is the most expensive call for the processor api
+    async fn validate_image(&self, image: Bytes) -> FRResult<Vec<Face>> {
+        match self {
+            Self::Paravision(backend) => backend.validate_image(image).await,
+            #[cfg(test)]
+            Self::Mock => Ok(vec![]),
+        }
+    }
+
+    //TODO: indicate if we only want most prominent? or do after the fact?
+    async fn generate_template(&self, image: Bytes) -> FRResult<Vec<libfr::Template>> {
+        match self {
+            Self::Paravision(backend) => backend.generate_template(image).await,
+            #[cfg(test)]
+            Self::Mock => Ok(vec![]),
+        }
+    }
+
+    async fn liveness_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
+        match self {
+            Self::Paravision(backend) => backend.liveness_check(image).await,
+            #[cfg(test)]
+            Self::Mock => Ok(vec![]),
+        }
+    }
+    async fn quality_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
+        match self {
+            Self::Paravision(backend) => backend.quality_check(image).await,
+            #[cfg(test)]
+            Self::Mock => Ok(vec![]),
+        }
+    }
+
+    async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet> {
+        match self {
+            Self::Paravision(backend) => backend.create_identity(template, ext_id).await,
+            #[cfg(test)]
+            Self::Mock => Ok(IDSet { ext_id: "112233".to_string(), fr_id: "abc_123".to_string() }),
         }
     }
 

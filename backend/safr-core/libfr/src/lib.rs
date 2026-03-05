@@ -4,6 +4,7 @@ pub mod repo;
 use bytes::Bytes;
 use libpv::errors::PVApiError;
 use libtpass::errors::TPassError;
+use libtpass::types::TPassProfile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::error::Error as SqlxError;
@@ -85,14 +86,14 @@ pub struct EnrollData {
 #[serde(tag = "kind")] //i like kind more than type. type gets in the way.
 pub enum EnrollDetails {
     Min { first_name: String, last_name: String, ext_id: Option<String> }, //only a name and local only
-    TPass(Value), //TODO: this will be what NewProfileRequest contains, the tpass minimum.
+    TPass(TPassProfile), //TODO: this will be what NewProfileRequest contains, the tpass minimum.
 }
 
 //internal image transport is binary-only
-#[derive(Debug)]
-pub enum Image {
-    Binary(Bytes),
-}
+// #[derive(Debug)]
+// pub enum Image {
+//     Binary(Bytes),
+// }
 
 #[derive(Debug)]
 pub enum SearchBy {
@@ -104,7 +105,7 @@ pub enum SearchBy {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EnrollmentCreateResult {
+pub struct IDPair {
     pub fr_id: String,
     pub ext_id: String,
 }
@@ -220,7 +221,19 @@ pub struct Face {
     pub quality: Option<f32>,
     pub mask: Option<f32>,
     pub liveness: Option<Liveness>,
+    pub template: Option<Template>,
     //pub extra: Option<Stuff>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Template {
+    pub embedding: Vec<f32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Image {
+    pub url: Option<String>, //url or file path. should this be a path str?
+    pub bytes: Option<Bytes>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

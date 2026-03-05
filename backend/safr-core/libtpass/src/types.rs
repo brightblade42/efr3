@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-
+use serde_json::Value;
+use std::collections::HashMap;
 //maybe type. This may be overkill for things we're just passing along to TPass.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FRAlert {
@@ -16,6 +17,24 @@ pub struct FRAlert {
 
 fn default_resource() -> String {
     "FR Alert".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")] // Automagically maps `img_url` to `imgUrl`, `f_name` to `fName`, etc!
+pub struct TPassProfile {
+    // 1. The fields you explicitly need right now
+    pub ccode: Option<u64>,
+    pub img_url: Option<String>,
+
+    pub f_name: Option<String>,
+    pub l_name: Option<String>,
+    pub m_name: Option<String>,
+
+    // The "Catch-All" bucket
+    //#[serde(flatten)], Serde takes every single field in the JSON
+    // that IS NOT explicitly defined above and stuffs it into this map!
+    #[serde(flatten)]
+    pub raw_details: HashMap<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
