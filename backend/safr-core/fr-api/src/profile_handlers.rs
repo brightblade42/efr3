@@ -2,11 +2,15 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, IDPair};
+use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, FRError, IDPair};
+use libtpass::errors::TPassError;
 use libtpass::types::EditProfileRequest;
 use serde_json::Value;
 
-use crate::{errors::AppError::Generic, extractors, AppState, WResult};
+use crate::{
+    errors::AppError::{self, Generic},
+    extractors, AppState, WResult,
+};
 
 /// Edit an existing remote profile. This useful for things like update a person to the
 /// FR watch list.
@@ -35,15 +39,18 @@ pub async fn create_profile(
     let _ep_resp = app_state.tpass_client.edit_profile(ep_req).await?;
     let tp_res = app_state.tpass_client.get_clients_by_ccode(vec![np_resp.ccode]).await?;
 
-    let tp_val = serde_json::to_value(tp_res.first())
-        .map_err(|e| Generic(format!("failed to serialize profile details: {}", e)))?;
-    let enroll_details = EnrollDetails::TPass(tp_val);
+    let prof = tp_res.into_iter().next().ok_or_else(|| {
+        //TODO: create an AppError::RemoteProfileNotFound
+        AppError::Generic(format!("could not load profile for client with ccode {}", np_resp.ccode))
+    })?;
 
-    let enroll_data =
-        EnrollData { image: Some(profile_data.image.clone()), details: Some(enroll_details) };
+    let enroll_data = EnrollData {
+        image: Some(profile_data.image.clone()),
+        details: Some(EnrollDetails::TPass(prof)),
+    };
 
     let mconf = MatchConfig::from(&app_state.config);
-    let res = app_state.fr_service.create_enrollment(enroll_data, mconf).await?;
+    let res = app_state.fr_service.create_enrollment(&enroll_data, mconf).await?;
 
     Ok(Json(res))
 }

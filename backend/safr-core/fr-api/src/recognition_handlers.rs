@@ -18,7 +18,7 @@ pub async fn quality_check(
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
 
-    let faces: Vec<Face> = app_state.fr_service.detect_face(image, false).await?;
+    let faces: Vec<Face> = app_state.fr_service.detect_faces(image, false).await?;
 
     //let faces: Vec<Face> = serde_json::from_value(res)
     //.map_err(|e| Generic(format!("failed to parse liveness response: {}", e)))?;
@@ -52,7 +52,7 @@ pub async fn liveness_check(
     let image = img_data
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
-    let faces = app_state.fr_service.detect_face(image, true).await?;
+    let faces = app_state.fr_service.detect_faces(image, true).await?;
 
     //TODO: should we return error or empty vec?
     let face = faces
@@ -108,7 +108,8 @@ pub async fn detect_faces(
         .image
         .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
     //NOTE:do we need to use imageOpts?
-    let faces = app_state.fr_service.detect_face(image, false).await?;
+    //
+    let faces = app_state.fr_service.detect_faces(image, false).await?;
 
     let value = serde_json::to_value(faces)
         .map_err(|e| Generic(format!("failed to serialize recognition result: {}", e)))?;

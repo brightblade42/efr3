@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use bytes::Bytes;
+use libfr::PossibleMatch;
 use libfr::{
     backend::{FRBackend, MatchConfig},
     remote::Remote,
@@ -9,6 +10,7 @@ use libfr::{
         EnrollmentMetadataRecord, ImageRecord, ProfileRecord, RegistrationErrorRecord,
         SqlxFrRepository,
     },
+    utils::score_to_percentage,
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentDeleteResult,
     EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair,
     ResetEnrollmentsResult, SearchBy,
@@ -36,11 +38,9 @@ impl FRService {
         Self { fr_engine, remote, fr_repo }
     }
 
-    pub async fn create_enrollment(
-        &self,
+    fn extract_and_validate_data(
         enroll_data: &EnrollData,
-        config: MatchConfig,
-    ) -> FRResult<IDPair> {
+    ) -> FRResult<(&EnrollDetails, String, Bytes)> {
         let details = enroll_data.details.as_ref().ok_or_else(|| {
             FRError::with_code(
                 1011,
@@ -53,9 +53,33 @@ impl FRService {
         })?;
 
         //TODO: check for duplicate
+        let image = enroll_data.image.clone().ok_or_else(|| {
+            FRError::with_code(
+                1011,
+                "Enrollment details were not provided or could not be resolved",
+            )
+        })?;
 
-        //TODO: do quality check
+        Ok((details, ext_id, image))
+    }
 
+    async fn ensure_enrollable(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
+        //check threshold as well.
+        //TODO: We'll want to log these if they fail so we don't want to use ?
+        let dupe_res = self.duplicate_check(image.clone(), config).await?; //its OK to clone bytes::Bytes, cheap not deep
+                                                                           //here we'd check if the threshold was met
+        let qual_res = self.fr_engine.quality_check(image, config).await?;
+        Ok(())
+    }
+
+    pub async fn create_enrollment(
+        &self,
+        enroll_data: &EnrollData,
+        config: MatchConfig,
+    ) -> FRResult<IDPair> {
+        let (details, ext_id, image) = Self::extract_and_validate_data(enroll_data)?;
+        //quality and dupe check
+        self.ensure_enrollable(image, config).await?; //only care about early error return otherwise we know we're good to go
         let profile = Self::build_profile_record(&ext_id, None, &details);
         //the whole thing passess or fails.
         self.persist_profile(&profile).await?;
@@ -143,8 +167,77 @@ impl FRService {
         Ok(ResetEnrollmentsResult { msg: backend_result.msg, local_reset: reset })
     }
 
-    pub async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
-        self.fr_engine.detect_face(image, liveness_check).await
+    pub async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
+        self.fr_engine.detect_faces(image, liveness_check).await
+    }
+
+    pub async fn quality_check(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
+        let faces = self.fr_engine.detect_faces(image, false).await?;
+
+        let face = faces.first().unwrap(); //What's the not explosive way to do this?
+
+        let quality = face.quality.unwrap_or(0.0);
+        let acceptability = face.acceptability.unwrap_or(0.0);
+        //TODO: add QualityCheckError
+        //NOTE: is acceptability deprecated?
+        if quality < config.min_quality || acceptability < config.min_acceptability {
+            //TODO: maybe just send the percents
+            let details = json!({
+                "quality": quality,
+                "acceptability": acceptability,
+                "min_quality": config.min_quality,
+                "min_acceptability": config.min_acceptability,
+                "quality_pct":  score_to_percentage(quality),
+                "acceptability_pct": score_to_percentage(acceptability),
+                "min_quality_pct": score_to_percentage(config.min_quality),
+                "min_acceptability_pct": score_to_percentage(config.min_acceptability),
+            });
+
+            return Err(FRError::with_details(
+                1012,
+                "Image quality did not meet standards",
+                details,
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub async fn duplicate_check(
+        &self,
+        image: Bytes,
+        config: MatchConfig,
+    ) -> FRResult<PossibleMatch> {
+        let fr_ident = self
+            .fr_engine
+            .recognize(image.clone(), config)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                FRError::with_code(1081, "duplicate_check: image processing returned no faces")
+            })?;
+
+        //not matter what, if there is a face, there is always a possible match. it's the closeness of that
+        //match that matters
+        fr_ident.possible_matches.into_iter().next().ok_or_else(|| {
+            FRError::with_code(
+                1081,
+                "duplicate_check: image processing returned no possible matches",
+            )
+        })
+
+        /*
+        *                     let details = json!({
+            "fr_id": fr_id,
+            "created_at": created_at,
+            //"score": score,
+            "score_pct": score_pct,
+            //"min_dupe_threshold": threshold,
+            "min_dupe_threshold_pct": threshold_pct,
+        });
+
+        */
     }
 
     pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
@@ -173,6 +266,7 @@ impl FRService {
             return Ok(fr_identities);
         }
 
+        //TODO: skip if we want a local only call.
         let remote_matches = self.remote.search_by_ids(SearchBy::ExtIDS(ext_ids), false).await?;
 
         //now we need to reinsert the updated profile info into the details of each
@@ -290,40 +384,40 @@ impl FRService {
         Ok(())
     }
 
-    async fn persist_image_snapshot(
-        &self,
-        ext_id: &str,
-        image: &Bytes,
-        details: &EnrollDetails,
-        quality: f32,
-        acceptability: f32,
-    ) -> FRResult<()> {
-        let (_, _, _, img_url, raw_data) = Self::extract_profile_fields(Some(details));
-        let image_record = ImageRecord {
-            ext_id: ext_id.to_string(),
-            data: image.to_vec(),
-            size: Some(image.len() as f32),
-            url: img_url,
-            quality,
-            acceptability,
-            raw_data,
-        };
+    // async fn persist_image_snapshot(
+    //     &self,
+    //     ext_id: &str,
+    //     image: &Bytes,
+    //     details: &EnrollDetails,
+    //     quality: f32,
+    //     acceptability: f32,
+    // ) -> FRResult<()> {
+    //     let (_, _, _, img_url, raw_data) = Self::extract_profile_fields(Some(details));
+    //     let image_record = ImageRecord {
+    //         ext_id: ext_id.to_string(),
+    //         data: image.to_vec(),
+    //         size: Some(image.len() as f32),
+    //         url: img_url,
+    //         quality,
+    //         acceptability,
+    //         raw_data,
+    //     };
 
-        if let Err(e) = self.fr_repo.upsert_image(&image_record).await {
-            let details = json!({
-                "ext_id": ext_id,
-                "error": e.to_string(),
-            });
-            self.append_repo_log("image_upsert_error", details.clone()).await;
-            return Err(FRError::with_details(
-                1054,
-                "Failed to persist enrollment image snapshot",
-                details,
-            ));
-        }
+    //     if let Err(e) = self.fr_repo.upsert_image(&image_record).await {
+    //         let details = json!({
+    //             "ext_id": ext_id,
+    //             "error": e.to_string(),
+    //         });
+    //         self.append_repo_log("image_upsert_error", details.clone()).await;
+    //         return Err(FRError::with_details(
+    //             1054,
+    //             "Failed to persist enrollment image snapshot",
+    //             details,
+    //         ));
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     //Codex went wild here
     async fn log_create_enrollment_failure(&self, ext_id: &str, err: &FRError) {
@@ -386,35 +480,6 @@ impl FRService {
                 fr_id: fr_id.map(str::to_string),
             },
         }
-    }
-    fn extract_profile_fields(
-        details: Option<&EnrollDetails>,
-    ) -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<Value>) {
-        match details {
-            Some(EnrollDetails::Min { first_name, last_name, .. }) => {
-                (Some(first_name.clone()), Some(last_name.clone()), None, None, None)
-            }
-            //Some(EnrollDetails::TPass(prof)) =>
-            Some(EnrollDetails::TPass(raw)) => (
-                Self::pick_string(raw, &["first_name", "firstName", "firstname"]),
-                Self::pick_string(raw, &["last_name", "lastName", "lastname"]),
-                Self::pick_string(raw, &["middle_name", "middleName", "middlename"]),
-                Self::pick_string(raw, &["imgUrl", "img_url", "imageUrl", "image_url"]),
-                Some(raw.clone()),
-            ),
-            None => (None, None, None, None, None),
-        }
-    }
-
-    fn pick_string(value: &Value, keys: &[&str]) -> Option<String> {
-        keys.iter().find_map(|key| {
-            value
-                .get(key)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-                .map(str::to_string)
-        })
     }
 
     fn profile_to_enrollment_item(profile: ProfileRecord) -> EnrollmentRosterItem {

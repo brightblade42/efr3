@@ -11,6 +11,7 @@ use super::{
 use crate::{
     backend::IDSet,
     repo::{EnrollmentMetadataRecord, ProfileRecord},
+    PossibleMatch,
 };
 use crate::{
     utils, AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentDeleteResult,
@@ -291,7 +292,49 @@ impl FRBackend for PVBackend {
     async fn liveness_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
         Ok(vec![])
     }
-    async fn quality_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
+
+    //should this take an embeddin instead.
+    async fn quality_check(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<Face>> {
+        let process_req = default_process_full_image_request(image, true);
+        let img_resp = self.proc_api.process_full_image(process_req).await?;
+
+        //most prominent face always idx 0 since v7.7+
+        let p_idx = img_resp.most_prominent_face_idx as usize;
+
+        //how did i do this for
+        let faces = if img_resp.faces.is_empty() { None } else { Some(&img_resp.faces) }
+            .ok_or_else(|| {
+                FRError::with_code(1081, "enrollment image processing returned no faces")
+            })?;
+
+        let prom_face = faces.get(p_idx).ok_or_else(|| {
+            FRError::with_code(1082, "most prominent face index is out of bounds")
+        })?;
+
+        let quality = prom_face.quality;
+        let acceptability = prom_face.acceptability;
+
+        //NOTE: is acceptability deprecated?
+        if quality < config.min_quality || acceptability < config.min_acceptability {
+            //TODO: maybe just send the percents
+            let details = json!({
+                "quality": quality,
+                "acceptability": acceptability,
+                "min_quality": config.min_quality,
+                "min_acceptability": config.min_acceptability,
+                "quality_pct": utils::score_to_percentage(quality),
+                "acceptability_pct": utils::score_to_percentage(acceptability),
+                "min_quality_pct": utils::score_to_percentage(config.min_quality),
+                "min_acceptability_pct": utils::score_to_percentage(config.min_acceptability),
+            });
+
+            return Err(FRError::with_details(
+                1012,
+                "Image quality did not meet standards",
+                details,
+            ));
+        }
+
         Ok(vec![])
     }
 
@@ -306,6 +349,7 @@ impl FRBackend for PVBackend {
         ext_id: &str,
     ) -> FRResult<IDPair> {
         //TODO: move this is check dupe.
+        //build CreateIdentityRequest
         let ident_req = self.get_enrollable_face(enroll_data, config).await;
         let details = enroll_data.details.as_ref().unwrap();
 
@@ -349,8 +393,7 @@ impl FRBackend for PVBackend {
         };
 
         let fr_id = ident.id;
-        let eid_str = ext_id.unwrap_or_default();
-        Ok(IDPair { fr_id, ext_id: eid_str })
+        Ok(IDPair { fr_id, ext_id: ext_id.to_string() })
     }
 
     async fn delete_enrollment(&self, face_id: &str) -> FRResult<EnrollmentDeleteResult> {
@@ -438,7 +481,7 @@ impl FRBackend for PVBackend {
         })
     }
 
-    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
+    async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         let process_req = if liveness_check {
             liveness_process_full_image_request(image)
         } else {
@@ -446,6 +489,7 @@ impl FRBackend for PVBackend {
         };
 
         let img_resp = self.proc_api.process_full_image(process_req).await?;
+        //This could be problematic if empty, would it ever be empty if we've gotten here?
         let faces = img_resp.faces.into_iter().map(Face::from).collect();
 
         Ok(faces)

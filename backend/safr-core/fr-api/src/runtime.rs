@@ -8,8 +8,8 @@ use libfr::{
     remote::{RegistrationPair, Remote, SearchResult},
     repo::EnrollmentMetadataRecord,
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentDeleteResult, EnrollmentRosterItem,
-    FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair, ResetEnrollmentsBackendResult, SearchBy,
-    Template,
+    FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair, PossibleMatch,
+    ResetEnrollmentsBackendResult, SearchBy, Template,
 };
 use libtpass::api::TPassClient;
 #[cfg(test)]
@@ -167,9 +167,9 @@ impl FRBackend for FREngine {
             Self::Mock => Ok(vec![]),
         }
     }
-    async fn quality_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
+    async fn quality_check(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<Face>> {
         match self {
-            Self::Paravision(backend) => backend.quality_check(image).await,
+            Self::Paravision(backend) => backend.quality_check(image, config).await,
             #[cfg(test)]
             Self::Mock => Ok(vec![]),
         }
@@ -225,9 +225,9 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn detect_face(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
+    async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         match self {
-            Self::Paravision(backend) => backend.detect_face(image, liveness_check).await,
+            Self::Paravision(backend) => backend.detect_faces(image, liveness_check).await,
             #[cfg(test)]
             Self::Mock => Ok(Vec::new()),
         }
