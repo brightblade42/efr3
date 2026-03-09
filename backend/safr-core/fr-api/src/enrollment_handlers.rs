@@ -30,9 +30,11 @@ pub async fn create_enrollment(
     multipart: Multipart,
 ) -> WResult<Json<IDPair>> {
     let enroll_data = extractors::extract_enroll_data(multipart).await?;
-    let mconf = MatchConfig::from(&app_state.config);
 
-    let res = app_state.fr_service.create_enrollment(&enroll_data, mconf).await?;
+    let res = app_state
+        .fr_service
+        .create_enrollment(&enroll_data, MatchConfig::from(&app_state.config))
+        .await?;
     Ok(Json(res))
 }
 
@@ -48,6 +50,7 @@ pub async fn delete_enrollment(
     State(app_state): State<AppState>,
     Json(payload): Json<DeleteEnrollmentBy>,
 ) -> WResult<Json<EnrollmentDeleteResult>> {
+    //this is a little weird
     let fr_id = resolve_fr_id_for_delete(&app_state, payload).await?;
     let res = app_state.fr_service.delete_enrollment(&fr_id).await?;
     info!("{:?}", res);
@@ -164,6 +167,7 @@ async fn resolve_fr_id_for_delete(
                     Generic(format!("no enrollment found for external id {}", ext_id))
                 })?;
 
+            //this wouldn't be possible
             profile
                 .fr_id
                 .ok_or_else(|| Generic(format!("profile for external id {} has no fr_id", ext_id)))

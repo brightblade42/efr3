@@ -2,13 +2,12 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, FRError, IDPair};
-use libtpass::errors::TPassError;
+use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, IDPair};
 use libtpass::types::EditProfileRequest;
 use serde_json::Value;
 
 use crate::{
-    errors::AppError::{self, Generic},
+    errors::AppError::{self},
     extractors, AppState, WResult,
 };
 

@@ -8,8 +8,8 @@ use libfr::{
     remote::{RegistrationPair, Remote, SearchResult},
     repo::EnrollmentMetadataRecord,
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentDeleteResult, EnrollmentRosterItem,
-    FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair, PossibleMatch,
-    ResetEnrollmentsBackendResult, SearchBy, Template,
+    FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair, ResetEnrollmentsBackendResult, SearchBy,
+    Template,
 };
 use libtpass::api::TPassClient;
 #[cfg(test)]
@@ -127,14 +127,12 @@ impl FREngine {
 impl FRBackend for FREngine {
     async fn create_enrollment(
         &self,
-        enroll_data: &EnrollData,
+        face: &Face,
         config: MatchConfig,
         ext_id: &str,
     ) -> FRResult<IDPair> {
         match self {
-            Self::Paravision(backend) => {
-                backend.create_enrollment(enroll_data, config, ext_id).await
-            }
+            Self::Paravision(backend) => backend.create_enrollment(face, config, ext_id).await,
             #[cfg(test)]
             Self::Mock => Ok(IDPair { fr_id: "mock-fr-id".to_string(), ext_id: "123".to_string() }),
         }
@@ -143,33 +141,18 @@ impl FRBackend for FREngine {
     //TODO: call this process_full_image. someting to indicate that
     // this is the kitchen sink call to get a full analysis of an image.
     // this is the most expensive call for the processor api
-    async fn validate_image(&self, image: Bytes) -> FRResult<Vec<Face>> {
-        match self {
-            Self::Paravision(backend) => backend.validate_image(image).await,
-            #[cfg(test)]
-            Self::Mock => Ok(vec![]),
-        }
-    }
+    // async fn validate_image(&self, image: Bytes) -> FRResult<Vec<Face>> {
+    //     match self {
+    //         Self::Paravision(backend) => backend.validate_image(image).await,
+    //         #[cfg(test)]
+    //         Self::Mock => Ok(vec![]),
+    //     }
+    // }
 
     //TODO: indicate if we only want most prominent? or do after the fact?
     async fn generate_template(&self, image: Bytes) -> FRResult<Vec<libfr::Template>> {
         match self {
             Self::Paravision(backend) => backend.generate_template(image).await,
-            #[cfg(test)]
-            Self::Mock => Ok(vec![]),
-        }
-    }
-
-    async fn liveness_check(&self, image: Bytes) -> FRResult<Vec<Face>> {
-        match self {
-            Self::Paravision(backend) => backend.liveness_check(image).await,
-            #[cfg(test)]
-            Self::Mock => Ok(vec![]),
-        }
-    }
-    async fn quality_check(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<Face>> {
-        match self {
-            Self::Paravision(backend) => backend.quality_check(image, config).await,
             #[cfg(test)]
             Self::Mock => Ok(vec![]),
         }
@@ -183,13 +166,14 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {
-        match self {
-            Self::Paravision(backend) => backend.delete_enrollment(fr_id).await,
-            #[cfg(test)]
-            Self::Mock => Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() }),
-        }
-    }
+    //TODO: this is no longer needed
+    // async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {
+    //     match self {
+    //         Self::Paravision(backend) => backend.delete_enrollment(fr_id).await,
+    //         #[cfg(test)]
+    //         Self::Mock => Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() }),
+    //     }
+    // }
 
     async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         match self {

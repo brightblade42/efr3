@@ -308,7 +308,7 @@ pub struct AttendanceResponse {
     pub timeStamp: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub enum AttendanceKind {
     In,
     Out,

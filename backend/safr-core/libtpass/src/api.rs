@@ -254,28 +254,26 @@ impl TPassClient {
     ///TPass gives us a lot to consider for determining attendance
     pub fn filter_attendance_state(
         recent: &LastAttendanceResponse,
-        att_kind: &AttendanceKind,
+        att_kind: AttendanceKind,
     ) -> CheckState {
-        //combination of time in and timeout let us know if we can check in or check out.
-        let (time_in, time_out) = (&recent.timeIn, &recent.timeOut);
+        let has_in = recent.timeIn.is_some();
+        let has_out = recent.timeOut.is_some();
 
-        match att_kind {
-            AttendanceKind::In => {
-                if time_out.is_some() || time_in.is_none() {
-                    CheckState::In
-                } else {
-                    CheckState::LastKnown
-                }
-            }
-            AttendanceKind::Out => {
-                if time_out.is_some() {
-                    CheckState::LastKnown
-                } else if time_out.is_none() && time_in.is_some() {
-                    CheckState::Out
-                } else {
-                    CheckState::None
-                }
-            }
+        // Match on all three conditions simultaneously as a tuple (Kind, has_in, has_out)
+        match (att_kind, has_in, has_out) {
+            // --- CHECKING IN ---
+            // They are already checked in, but haven't checked out yet.
+            (AttendanceKind::In, true, false) => CheckState::LastKnown,
+            // Any other state (never checked in, or already checked out), they can check in.
+            (AttendanceKind::In, _, _) => CheckState::In,
+
+            // --- CHECKING OUT ---
+            // They already checked out today.
+            (AttendanceKind::Out, _, true) => CheckState::LastKnown,
+            // They checked in, and have not checked out. Ready to check out!
+            (AttendanceKind::Out, true, false) => CheckState::Out,
+            // They never checked in, so they mathematically cannot check out.
+            (AttendanceKind::Out, false, false) => CheckState::None,
         }
     }
 
@@ -635,7 +633,6 @@ impl TPassClient {
 impl TPassClient {
     ///mark_attendance is a simplified  version of record_attendance. This method deals with a single
     ///identity whereas record_attendance will spawn a task for each identity in a vec.
-    //pub async fn mark_attendance(&mut self, details: Value, att_kind: AttendanceKind ) -> TResult<Option<AttendanceStatus>> {
     pub async fn mark_attendance(
         &self,
         idpair: (String, u64),
@@ -644,13 +641,12 @@ impl TPassClient {
         let ts = self.get_api_token().await?;
 
         let date_time = Local::now().format("%Y-%m-%d").to_string();
-        //TODO: reject if idnumber doesn't exist
-        //let id_string = details["idnumber"].to_string(); //req for checkin and out.
-        //let ccode = details["ccode"].as_u64().unwrap(); //should be infallible
-        let id_string = idpair.0; //details["idnumber"].to_string(); //req for checkin and out.
-        let ccode = idpair.1; //details["ccode"].as_u64().unwrap(); //should be infallible
+
+        // Destructure the tuple cleanly
+        let (id_string, ccode) = idpair;
         let id_num = id_to_num_helper(&id_string);
-        debug!(" ****  details ids: ccode: {} idnumber: {}", ccode, id_num);
+        debug!(" **** details ids: ccode: {} idnumber: {}", ccode, id_num);
+
         let last_known_url = format!(
             "{}api/clients/searchclientwithlogs?id={}&date={}",
             self.conf.url, id_num, date_time
@@ -660,161 +656,38 @@ impl TPassClient {
         let res: Vec<LastAttendanceResponse> =
             self.client.get(last_known_url).bearer_auth(&ts).send().await?.json().await?;
 
-        //NOTE: We actually only recieve a single result for a given id_number even though it is in a vector.
-        //There is also nothing preventing TPASS from storing identical id_numbers. This means we could get the wrong thing back.
-        //The match code below assumes we receive more than one result for matching id_numbers. This assumption is currently wrong.
-        //if we receive more than one result for an id, we need to narrow to the ccode.
-        //the rules for idnumber in tpass are very relaxed and very undude
-        let att_opt = match res.len() {
-            0 => None, //i doubt this will occur, more likely early error return above.
-            1 => Some(res[0].clone()),
-            _ => res.iter().find(|r| r.ccode == Some(ccode)).cloned(),
+        let att_opt = if res.len() == 1 {
+            res.into_iter().next()
+        } else {
+            res.into_iter().find(|r| r.ccode == Some(ccode))
         };
 
-        //now that we have recent checkin/out for peeps lets see what we can check in
-        //what would be sweet is an is_checked_in property or something, this be weird.
-        //I don't got control over this data though.
-        let chk = if let Some(att_resp) = att_opt {
-            match TPassClient::filter_attendance_state(&att_resp, &att_kind) {
-                //trick to reduce the possible match states
-                CheckState::In => {
-                    let mut status =
-                        TPassClient::do_attendance(&self.client, &tk_url, ts.clone(), &att_resp)
-                            .await?;
-                    status.kind = AttendanceKind::In;
-                    Some(status)
-                }
-                CheckState::Out => {
-                    let mut status =
-                        TPassClient::do_attendance(&self.client, &tk_url, ts.clone(), &att_resp)
-                            .await?;
-                    status.kind = AttendanceKind::Out;
-                    Some(status)
-                }
-                CheckState::LastKnown => {
-                    //println!("RETURN LAST KNOWN ");
-                    Some(AttendanceStatus::from(att_resp))
-                }
-                CheckState::None => {
-                    info!("mark_attendance: Client has not been to the building today");
-                    None
-                }
+        //Bail early if there's no attendance record to act on
+        let Some(att_resp) = att_opt else {
+            return Ok(None);
+        };
+
+        let chk = match TPassClient::filter_attendance_state(&att_resp, att_kind) {
+            state @ (CheckState::In | CheckState::Out) => {
+                let mut status =
+                    TPassClient::do_attendance(&self.client, &tk_url, ts.clone(), &att_resp)
+                        .await?;
+
+                status.kind = match state {
+                    CheckState::In => AttendanceKind::In,
+                    _ => AttendanceKind::Out,
+                };
+
+                Some(status)
             }
-        } else {
-            //don't do anything, already checked in.
-            None
+            CheckState::LastKnown => Some(AttendanceStatus::from(att_resp)),
+            CheckState::None => {
+                info!("mark_attendance: Client has not been to the building today");
+                None
+            }
         };
 
         Ok(chk)
-    }
-
-    ///The older more complicated way. This may not be needed anymore but keeping around
-    pub async fn record_attendance(
-        &self,
-        enrollments: Vec<Value>,
-        att_kind: AttendanceKind,
-    ) -> TResult<Vec<AttendanceStatus>> {
-        let ts = self.get_api_token().await?;
-        let futures = stream::iter(enrollments)
-            .map(|details| {
-                let client = self.client.clone();
-                let ts = ts.clone();
-                let date_time = Local::now().format("%Y-%m-%d").to_string();
-                let id_string = details["idnumber"].to_string(); //req for checkin and out.
-                let id_num = id_to_num_helper(&id_string);
-                let ccode = details["ccode"].as_u64();
-                let last_known_url = format!(
-                    "{}api/clients/searchclientwithlogs?id={}&date={}",
-                    self.conf.url, id_num, date_time
-                );
-                let tk_url = format!("{}api/timekeeper", self.conf.url);
-                let att_type = att_kind.clone();
-
-                async move {
-                    let Some(ccode) = ccode else {
-                        warn!("record_attendance detail missing ccode");
-                        return Ok(None);
-                    };
-
-                    let res: Vec<LastAttendanceResponse> =
-                        client.get(last_known_url).bearer_auth(&ts).send().await?.json().await?;
-
-                    //if we receive more than one result for an id, we need to narrow to the ccode.
-                    //the rules for idnumber in tpass are very relaxed and very undude
-                    let att_opt = match res.len() {
-                        0 => None, //i doubt this will occur, more likely early error return above.
-                        1 => Some(res[0].clone()),
-                        _ => res.iter().find(|r| r.ccode == Some(ccode)).cloned(),
-                    };
-
-                    //now that we have recent checkin/out for peeps lets see what we can check in
-                    //what would be sweet is an is_checked_in property or something, this be weird.
-                    //I don't got control over this data though.
-                    let chk = if let Some(att_resp) = att_opt {
-                        match TPassClient::filter_attendance_state(&att_resp, &att_type) {
-                            //trick to reduce the possible match states
-                            CheckState::In => {
-                                let mut status = TPassClient::do_attendance(
-                                    &client,
-                                    &tk_url,
-                                    ts.clone(),
-                                    &att_resp,
-                                )
-                                .await?;
-                                status.kind = AttendanceKind::In;
-                                Some(status)
-                            }
-                            CheckState::Out => {
-                                let mut status = TPassClient::do_attendance(
-                                    &client,
-                                    &tk_url,
-                                    ts.clone(),
-                                    &att_resp,
-                                )
-                                .await?;
-                                status.kind = AttendanceKind::Out;
-                                Some(status)
-                            }
-                            CheckState::LastKnown => {
-                                //println!("RETURN LAST KNOWN ");
-                                Some(AttendanceStatus::from(att_resp))
-                            }
-                            CheckState::None => {
-                                info!("Client has not been to the building today");
-                                None
-                            }
-                        }
-                    } else {
-                        //don't do anything, already checked in.
-                        None
-                    };
-
-                    Ok(chk)
-                }
-            })
-            .buffer_unordered(PARALLEL_REQUESTS);
-
-        let client_res = futures
-            .fold(
-                Vec::new(),
-                |mut acc: Vec<AttendanceStatus>, res: TResult<Option<AttendanceStatus>>| async move {
-                    match res {
-                        Ok(resp) => {
-                            if let Some(status) = resp {
-                                acc.push(status);
-                            }
-                        }
-                        Err(e) => {
-                            //TODO: log failed attendance to db for logging
-                            warn!("record_attendance call failed: {}", e);
-                        }
-                    }
-                    acc
-                },
-            )
-            .await;
-
-        Ok(client_res)
     }
 
     //we need to pass in some details fr_id, ccode

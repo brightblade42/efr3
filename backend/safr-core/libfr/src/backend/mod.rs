@@ -2,9 +2,8 @@ pub mod paravision;
 mod pvtypes;
 use crate::repo::EnrollmentMetadataRecord;
 use crate::{
-    AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentDeleteResult, EnrollmentRosterItem,
-    FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair, Liveness, PossibleMatch,
-    ResetEnrollmentsBackendResult, Template,
+    AddFaceResult, DeleteFaceResult, EnrollmentDeleteResult, EnrollmentRosterItem, FRIdentity,
+    FRResult, Face, GetFaceInfoResult, IDPair, ResetEnrollmentsBackendResult, Template,
 };
 use bytes::Bytes;
 use serde_json::Value;
@@ -14,21 +13,21 @@ pub trait FRBackend: Send + Sync {
     //async fn enroll_face(&self, b64: String, details: EnrollDetails) -> FRResult;
     async fn create_enrollment(
         &self,
-        enroll_data: &EnrollData,
+        face: &Face,
         config: MatchConfig,
         ext_id: &str,
     ) -> FRResult<IDPair>; //create an enrollment for a single face
-    async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult>; //delete an enrollment for a singel face
+                           //async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult>; //delete an enrollment for a singel face
     async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord>;
     async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>>; //get a list of all the enrollments, or a subset for paging
     async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult>; //delete the whole damn thing. away with you.
     async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>>;
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>>;
 
-    async fn validate_image(&self, image: Bytes) -> FRResult<Vec<Face>>;
+    //async fn validate_image(&self, image: Bytes) -> FRResult<Vec<Face>>;
     async fn generate_template(&self, image: Bytes) -> FRResult<Vec<Template>>;
-    async fn liveness_check(&self, image: Bytes) -> FRResult<Vec<Face>>;
-    async fn quality_check(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<Face>>;
+    //async fn liveness_check(&self, image: Bytes) -> FRResult<Vec<Face>>;
+    //async fn quality_check(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<Face>>;
     //async fn duplicate_check(&self, image: Bytes, config: MatchConfig) -> FRResult<PossibleMatch>;
     async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet>;
 

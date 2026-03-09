@@ -1,7 +1,4 @@
-use crate::{
-    remote::{tpass, Remote},
-    EnrollData, EnrollDetails, FRError, FRResult, Image, SearchBy,
-};
+use crate::{remote::Remote, EnrollData, EnrollDetails, FRError, FRResult, Image, SearchBy};
 
 use libtpass::api::TPassClient;
 use serde_json::json;
@@ -21,7 +18,11 @@ async fn handle_name_search(
 
     // Enforce the img_url rule
     if item.img_url.is_none() {
-        return Err(FRError::with_code(1002, "name search returned profile without imgUrl"));
+        return Err(FRError::with_code(
+            1002,
+            "missing_tpass_image_error",
+            "name search returned profile without imgUrl",
+        ));
     }
 
     Ok(Some(SearchResult {
@@ -39,6 +40,7 @@ async fn handle_ext_id_search(
     let ccode = ext_id.trim().parse::<u64>().map_err(|_| {
         FRError::with_code(
             1002,
+            "ext_id_wrong_type_error",
             "search_one doesn't support provided ID type. ID must be numeric for TPass",
         )
     })?;
@@ -50,6 +52,7 @@ async fn handle_ext_id_search(
     if item.img_url.is_none() {
         return Err(FRError::with_code(
             1002,
+            "tpass_profile_error",
             &format!("client with ccode {} doesn't exist or has no imgUrl. can't enroll without an available image", ccode),
         ));
     }
@@ -68,6 +71,7 @@ impl Remote for TPassClient {
         let ccode = reg_pair.ext_id.parse::<u64>().map_err(|e| {
             FRError::with_details(
                 1081,
+                "register_enrollment_error",
                 "Could not parse ext_id for TPass registration",
                 json!({
                     "ext_id": reg_pair.ext_id,
@@ -81,6 +85,7 @@ impl Remote for TPassClient {
             error!("TPASS returned a Registration Error!");
             return Err(FRError::with_details(
                 1080,
+                "register_enrollment_error",
                 "Couldn't register enrollment with Remote",
                 res,
             ));
@@ -139,6 +144,7 @@ impl Remote for TPassClient {
                         let image = enroll_data.image.clone().ok_or_else(|| {
                             FRError::with_code(
                                 1003,
+                                "enrollment_image_missing_error",
                                 "TPass enrollment details were provided without an image",
                             )
                         })?;
@@ -166,7 +172,8 @@ impl Remote for TPassClient {
                 //we won't actually return, temp
                 Err(FRError::with_code(
                     1001,
-                    "remote.search did not have enough data to perform a search",
+                    "insufficient_data_for_search_error",
+                    "remote search did not have enough data to perform a search",
                 ))
             } //get an image if we don't have one, return err if we couldn't get the image
         }
@@ -192,6 +199,7 @@ impl Remote for TPassClient {
             _ => {
                 return Err(FRError::with_code(
                     1002,
+                    "unsupported_search_mode_error",
                     "search_one doesn't support the provided search mode",
                 ));
             }
@@ -229,6 +237,7 @@ impl Remote for TPassClient {
         let SearchBy::ExtIDS(ext_ids) = search else {
             return Err(FRError::with_code(
                 2000,
+                "unsupported_search_type_error",
                 "search_many doesn't currently support name search, only id",
             ));
         };

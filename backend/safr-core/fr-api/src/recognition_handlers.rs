@@ -5,43 +5,33 @@ use axum::{
 use serde_json::{json, Value};
 use tracing::info;
 
-use crate::{errors::AppError::Generic, extractors, AppState, WResult};
+use crate::{extractors, AppState, WResult};
 use libfr::backend::MatchConfig;
-use libfr::Face;
+//use libfr::Face;
 
 pub async fn quality_check(
     State(app_state): State<AppState>,
     multipart: Multipart,
 ) -> WResult<Json<Value>> {
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-    let image = img_data
-        .image
-        .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
+    let image = img_data.image.unwrap();
 
-    let faces: Vec<Face> = app_state.fr_service.detect_faces(image, false).await?;
-
-    //let faces: Vec<Face> = serde_json::from_value(res)
-    //.map_err(|e| Generic(format!("failed to parse liveness response: {}", e)))?;
-    let face = faces
-        .into_iter()
-        .next()
-        .ok_or_else(|| Generic("No faces were detected in image".to_string()))?;
-
-    let min_acceptability = app_state.config.min_acceptability;
-    let min_quality = app_state.config.min_quality;
+    let face = app_state.fr_service.get_closest_face(image, false).await?;
     let quality = face.quality.unwrap_or(0.0);
     let acceptability = face.acceptability.unwrap_or(0.0);
 
-    let response = json!({
+    let pass = quality >= app_state.config.min_quality
+        && acceptability >= app_state.config.min_acceptability;
+
+    Ok(Json(json!({
+        "high_quality": pass,
         "image": {
-            "min_acceptability": min_acceptability,
-            "min_quality": min_quality,
+            "min_acceptability": app_state.config.min_acceptability,
+            "min_quality": app_state.config.min_quality,
             "acceptability": acceptability,
             "quality": quality,
         },
-    });
-
-    Ok(Json(response))
+    })))
 }
 /// Spoof check flag is currently passed through to backend implementation.
 pub async fn liveness_check(
@@ -49,16 +39,9 @@ pub async fn liveness_check(
     multipart: Multipart,
 ) -> WResult<Json<Value>> {
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-    let image = img_data
-        .image
-        .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
-    let faces = app_state.fr_service.detect_faces(image, true).await?;
+    let image = img_data.image.unwrap();
 
-    //TODO: should we return error or empty vec?
-    let face = faces
-        .into_iter()
-        .next()
-        .ok_or_else(|| Generic("No faces were detected in image".to_string()))?;
+    let face = app_state.fr_service.get_closest_face(image, true).await?;
 
     let min_acceptability = app_state.config.min_acceptability;
     let min_quality = app_state.config.min_quality;
@@ -71,7 +54,8 @@ pub async fn liveness_check(
         score: 0.0,
     });
 
-    let response = json!({
+    //We have a demo that depends on this but i think this is a confusing result
+    Ok(Json(json!({
         "image": {
             "min_acceptability": min_acceptability,
             "min_quality": min_quality,
@@ -94,9 +78,7 @@ pub async fn liveness_check(
             &liveness.feedback,
             min_acceptability,
         ),
-    });
-
-    Ok(Json(response))
+    })))
 }
 
 pub async fn detect_faces(
@@ -104,16 +86,16 @@ pub async fn detect_faces(
     multipart: Multipart,
 ) -> WResult<Json<Value>> {
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-    let image = img_data
-        .image
-        .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
-    //NOTE:do we need to use imageOpts?
-    //
-    let faces = app_state.fr_service.detect_faces(image, false).await?;
+    let image = img_data.image.unwrap();
 
-    let value = serde_json::to_value(faces)
-        .map_err(|e| Generic(format!("failed to serialize recognition result: {}", e)))?;
-    Ok(Json(value))
+    //NOTE:do we need to use imageOpts?
+    let mut faces = app_state.fr_service.detect_faces(image, false).await?;
+
+    for f in &mut faces {
+        f.liveness = None
+    }
+
+    Ok(Json(json!(faces)))
 }
 
 /// Recognize a face and return information about that face and details about the person
@@ -127,10 +109,7 @@ pub async fn recognize(
 
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
     mconf.top_n = img_data.opts.as_ref().map_or(mconf.top_n, |opts| opts.top_matches as i32);
-
-    let image = img_data
-        .image
-        .ok_or_else(|| Generic("An image is required but was not provided".to_string()))?;
+    let image = img_data.image.unwrap();
 
     let mut identities = app_state.fr_service.recognize(image, mconf).await?;
 
@@ -146,9 +125,7 @@ pub async fn recognize(
         info!("details for all possible matches is wanted");
     }
 
-    let value = serde_json::to_value(identities)
-        .map_err(|e| Generic(format!("failed to serialize recognition result: {}", e)))?;
-    Ok(Json(value))
+    Ok(Json(json!(identities)))
 }
 
 fn is_image_valid(

@@ -3,7 +3,6 @@ mod tpass;
 use crate::{EnrollData, FRResult, Image, SearchBy};
 use libtpass::types::TPassProfile;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 //some external api based system that holds information about the people that need recognizing.
 #[allow(async_fn_in_trait)]
 pub trait Remote: Send + Sync {

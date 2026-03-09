@@ -16,7 +16,9 @@ pub type FRResult<T> = Result<T, FRError>;
 #[error("{message}")]
 pub struct FRError {
     pub code: u16,
+    pub name: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
 }
 
@@ -24,16 +26,17 @@ impl FRError {
     pub fn new() -> Self {
         Self {
             code: 500,
+            name: "generic_error".to_string(),
             message: "could not perform fr operation. this is a catch all.".to_string(),
             details: None,
         }
     }
-    pub fn with_code(code: u16, message: &str) -> Self {
-        Self { code, message: message.to_string(), details: None }
+    pub fn with_code(code: u16, name: &str, message: &str) -> Self {
+        Self { code, name: name.to_string(), message: message.to_string(), details: None }
     }
 
-    pub fn with_details(code: u16, message: &str, details: Value) -> Self {
-        Self { code, message: message.to_string(), details: Some(details) }
+    pub fn with_details(code: u16, name: &str, message: &str, details: Value) -> Self {
+        Self { code, name: name.to_string(), message: message.to_string(), details: Some(details) }
     }
 }
 
@@ -45,25 +48,31 @@ impl Default for FRError {
 
 impl From<PVApiError> for FRError {
     fn from(pv: PVApiError) -> Self {
-        Self { code: pv.code, message: pv.message, details: None }
+        //TODO: update PVApiError to provide name. we might not even
+        // need that error anymore
+        let name = "pv_api_error".to_string();
+        Self { code: pv.code, name, message: pv.message, details: None }
     }
 }
 
 impl From<&PVApiError> for FRError {
     fn from(pv: &PVApiError) -> Self {
-        Self { code: pv.code, message: pv.message.clone(), details: None }
+        let name = "pv_api_error".to_string();
+        Self { code: pv.code, name, message: pv.message.clone(), details: None }
     }
 }
 
 impl From<TPassError> for FRError {
     fn from(e: TPassError) -> Self {
-        Self { code: 2000, message: e.to_string(), details: None }
+        let name = "tpass_error".to_string();
+        Self { code: 2000, name, message: e.to_string(), details: None }
     }
 }
 impl From<SqlxError> for FRError {
     fn from(se: SqlxError) -> Self {
         Self {
             code: 1000, //don't know
+            name: "sqlx_error".to_string(),
             message: se.to_string(),
             details: None,
         }
@@ -72,7 +81,12 @@ impl From<SqlxError> for FRError {
 
 impl From<serde_json::Error> for FRError {
     fn from(se: serde_json::Error) -> Self {
-        Self { code: 3000, message: se.to_string(), details: None }
+        Self {
+            code: 3000,
+            name: "serde_json_error".to_string(),
+            message: se.to_string(),
+            details: None,
+        }
     }
 }
 
@@ -169,7 +183,7 @@ pub struct PossibleMatch {
     #[serde(default, alias = "confidence_pct")]
     pub score_pct: f32,
     pub ext_id: String,
-    pub details: Option<Value>,
+    pub details: Option<Value>, //most likely some kind of remote profile info
 }
 
 impl PossibleMatch {
@@ -216,11 +230,15 @@ pub struct BoundingBox {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Face {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bbox: Option<BoundingBox>,
     pub acceptability: Option<f32>,
     pub quality: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mask: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub liveness: Option<Liveness>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<Template>,
     //pub extra: Option<Stuff>
 }

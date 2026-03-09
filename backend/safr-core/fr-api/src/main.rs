@@ -128,8 +128,11 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/edit-profile", post(profile_handlers::edit_profile))
         .route("/send-alert", post(tpass_handlers::send_fr_alert))
         .route("/mark-attendance", post(attendance_handlers::mark_attendance))
-        //NOTE: validate image, does liveness and includes quality
+        //NOTE: deprecated in favor of liveness-check, clearer name
+        //TODO: delete validate-image after liveness demo is complete
         .route("/validate-image", post(recognition_handlers::liveness_check))
+        //NOTE: liveness-check, does liveness and includes quality
+        .route("/liveness-check", post(recognition_handlers::liveness_check))
         //just the quality. validate is a more verbose version
         .route("/quality-check", post(recognition_handlers::quality_check))
         .route("/detect", post(recognition_handlers::detect_faces)) //detect, bbox.

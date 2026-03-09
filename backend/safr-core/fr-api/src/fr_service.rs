@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -6,19 +6,14 @@ use libfr::PossibleMatch;
 use libfr::{
     backend::{FRBackend, MatchConfig},
     remote::Remote,
-    repo::{
-        EnrollmentMetadataRecord, ImageRecord, ProfileRecord, RegistrationErrorRecord,
-        SqlxFrRepository,
-    },
-    utils::score_to_percentage,
+    repo::{EnrollmentMetadataRecord, ProfileRecord, RegistrationErrorRecord, SqlxFrRepository},
     AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentDeleteResult,
     EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair,
     ResetEnrollmentsResult, SearchBy,
 };
-use libtpass::api::TPassClient;
 use libtpass::types::TPassProfile;
 use serde_json::{json, Value};
-use tracing::warn;
+use tracing::{error, info, warn};
 
 use crate::runtime::{FREngine, RemoteRuntime};
 
@@ -41,21 +36,28 @@ impl FRService {
     fn extract_and_validate_data(
         enroll_data: &EnrollData,
     ) -> FRResult<(&EnrollDetails, String, Bytes)> {
+        //TODO: should we log any of these?
         let details = enroll_data.details.as_ref().ok_or_else(|| {
             FRError::with_code(
                 1011,
+                "enroll_details_error",
                 "Enrollment details were not provided or could not be resolved",
             )
         })?;
 
         let ext_id = Self::extract_ext_id(&details).ok_or_else(|| {
-            FRError::with_code(1050, "An external id is required for create enrollment")
+            FRError::with_code(
+                1050,
+                "ext_id_missing_error",
+                "An external id is required for create enrollment",
+            )
         })?;
 
-        //TODO: check for duplicate
+        //do we need this check?
         let image = enroll_data.image.clone().ok_or_else(|| {
             FRError::with_code(
                 1011,
+                "enroll_details_error",
                 "Enrollment details were not provided or could not be resolved",
             )
         })?;
@@ -63,13 +65,44 @@ impl FRService {
         Ok((details, ext_id, image))
     }
 
-    async fn ensure_enrollable(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
+    //combines a duplicate check and a quality check.
+    //return a face that can be used for enrollment
+    async fn ensure_enrollable(&self, image: Bytes, config: MatchConfig) -> FRResult<Face> {
         //check threshold as well.
-        //TODO: We'll want to log these if they fail so we don't want to use ?
-        let dupe_res = self.duplicate_check(image.clone(), config).await?; //its OK to clone bytes::Bytes, cheap not deep
-                                                                           //here we'd check if the threshold was met
-        let qual_res = self.fr_engine.quality_check(image, config).await?;
-        Ok(())
+        self.duplicate_check(image.clone(), config).await?; //its OK to clone bytes::Bytes, cheap not deep
+
+        //only ever enroll 1 face.
+        let mut face = self.get_closest_face(image, false).await?;
+        let quality = face.quality.unwrap_or(0.0);
+        let acceptability = face.acceptability.unwrap_or(0.0);
+
+        //we don't want these logged. waste
+        //face.template = None;
+        face.bbox = None;
+        face.liveness = None;
+
+        if quality <= config.min_quality || acceptability <= config.min_acceptability {
+            let fr_err = FRError::with_details(
+                1081,
+                "low_quality_error",
+                "min quality not met",
+                json!(face),
+            );
+
+            self.log_enrollment_error("create_enrollment", &fr_err).await?;
+            return Err(fr_err);
+        }
+        Ok(face)
+    }
+
+    //really just returns the most prominent face which is known to have quality attributes
+    pub async fn get_closest_face(&self, image: Bytes, include_liveness: bool) -> FRResult<Face> {
+        Ok(self
+            .detect_faces(image, include_liveness)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| FRError::with_code(1081, "faces_not_found_error", "no faces found"))?)
     }
 
     pub async fn create_enrollment(
@@ -79,17 +112,22 @@ impl FRService {
     ) -> FRResult<IDPair> {
         let (details, ext_id, image) = Self::extract_and_validate_data(enroll_data)?;
         //quality and dupe check
-        self.ensure_enrollable(image, config).await?; //only care about early error return otherwise we know we're good to go
+        let face = self.ensure_enrollable(image, config).await?; //only care about early error return otherwise we know we're good to go
         let profile = Self::build_profile_record(&ext_id, None, &details);
         //the whole thing passess or fails.
         self.persist_profile(&profile).await?;
 
         //should be called create_identity?
-        let response = match self.fr_engine.create_enrollment(enroll_data, config, &ext_id).await {
+        let response = match self.fr_engine.create_enrollment(&face, config, &ext_id).await {
             Ok(response) => response,
             Err(err) => {
+                warn!(
+                    "create enrollment \n{}",
+                    serde_json::to_string_pretty(err.details.as_ref().unwrap_or_default())
+                        .unwrap_or_default()
+                );
                 //TODO: validate proper logging
-                self.log_create_enrollment_failure(&ext_id, &err).await;
+                self.log_enrollment_error("create_enrollment", &err).await?;
                 return Err(err);
             }
         };
@@ -98,19 +136,23 @@ impl FRService {
     }
 
     pub async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {
-        let response = self.fr_engine.delete_enrollment(fr_id).await?;
+        //Delete enrollment is handled purely by deleting a profile.
 
+        //  let response = self.fr_engine.delete_enrollment(fr_id).await?;
+
+        //we may want to rename it delete enrollment? maybe..
         match self.fr_repo.delete_profile_by_fr_id(fr_id).await {
             Ok(rows_affected) => {
                 if rows_affected == 0 {
-                    self.append_repo_log(
-                        "profile_delete_miss",
+                    info!("delete_enrollment: {} not found", fr_id);
+                    return Err(FRError::with_details(
+                        1060,
+                        "delete_enrollment_error",
+                        "enrollment doesn't exist for fr_id",
                         json!({
-                            "fr_id": fr_id,
-                            "message": "No profile row matched fr_id during delete",
+                        "fr_id": fr_id
                         }),
-                    )
-                    .await;
+                    ));
                 }
             }
             Err(e) => {
@@ -118,23 +160,26 @@ impl FRService {
                     "fr_id": fr_id,
                     "error": e.to_string(),
                 });
-                self.append_repo_log("profile_delete_error", details.clone()).await;
+                self.append_repo_log("delete_enrollment_error", details.clone()).await;
                 return Err(FRError::with_details(
                     1060,
+                    "delete_enrollment_error",
                     "Enrollment deleted in backend but eyefr profile cleanup failed",
                     details,
                 ));
             }
         }
 
+        //TODO: is this still a thing?
         self.remote.unregister_enrollment().await?;
-        Ok(response)
+        Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() })
     }
 
     pub async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         self.fr_repo.get_enrollment_metadata().await.map_err(|e| {
             FRError::with_details(
                 1062,
+                "load_enrollment_metadata_error",
                 "Failed to load enrollment metadata from eyefr repository",
                 json!({ "error": e.to_string() }),
             )
@@ -145,6 +190,7 @@ impl FRService {
         let roster = self.fr_repo.get_enrollment_roster(1000).await.map_err(|e| {
             FRError::with_details(
                 1064,
+                "get_enrollment_roster_error",
                 "Failed to load enrollment roster from eyefr repository",
                 json!({ "error": e.to_string() }),
             )
@@ -159,6 +205,7 @@ impl FRService {
         let reset = self.fr_repo.reset_enrollment_state().await.map_err(|e| {
             FRError::with_details(
                 1065,
+                "reset_enrollments_error",
                 "PV reset succeeded but local eyefr reset failed",
                 json!({ "error": e.to_string() }),
             )
@@ -171,73 +218,40 @@ impl FRService {
         self.fr_engine.detect_faces(image, liveness_check).await
     }
 
-    pub async fn quality_check(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
-        let faces = self.fr_engine.detect_faces(image, false).await?;
+    pub async fn duplicate_check(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
+        //no results means no duplicate, could be a clean db
+        let fr_ident = self.fr_engine.recognize(image, config).await?;
 
-        let face = faces.first().unwrap(); //What's the not explosive way to do this?
-
-        let quality = face.quality.unwrap_or(0.0);
-        let acceptability = face.acceptability.unwrap_or(0.0);
-        //TODO: add QualityCheckError
-        //NOTE: is acceptability deprecated?
-        if quality < config.min_quality || acceptability < config.min_acceptability {
-            //TODO: maybe just send the percents
-            let details = json!({
-                "quality": quality,
-                "acceptability": acceptability,
-                "min_quality": config.min_quality,
-                "min_acceptability": config.min_acceptability,
-                "quality_pct":  score_to_percentage(quality),
-                "acceptability_pct": score_to_percentage(acceptability),
-                "min_quality_pct": score_to_percentage(config.min_quality),
-                "min_acceptability_pct": score_to_percentage(config.min_acceptability),
-            });
-
-            return Err(FRError::with_details(
-                1012,
-                "Image quality did not meet standards",
-                details,
-            ));
+        if fr_ident.is_empty() {
+            return Ok(());
         }
-
-        Ok(())
-    }
-
-    pub async fn duplicate_check(
-        &self,
-        image: Bytes,
-        config: MatchConfig,
-    ) -> FRResult<PossibleMatch> {
-        let fr_ident = self
-            .fr_engine
-            .recognize(image.clone(), config)
-            .await?
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                FRError::with_code(1081, "duplicate_check: image processing returned no faces")
-            })?;
 
         //not matter what, if there is a face, there is always a possible match. it's the closeness of that
         //match that matters
-        fr_ident.possible_matches.into_iter().next().ok_or_else(|| {
-            FRError::with_code(
-                1081,
-                "duplicate_check: image processing returned no possible matches",
-            )
-        })
+        let pm = fr_ident
+            .into_iter()
+            .next()
+            .unwrap()
+            .possible_matches
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                FRError::with_code(
+                    1081,
+                    "duplicate_check_error",
+                    "duplicate_check: image processing returned no possible matches",
+                )
+            })?;
 
-        /*
-        *                     let details = json!({
-            "fr_id": fr_id,
-            "created_at": created_at,
-            //"score": score,
-            "score_pct": score_pct,
-            //"min_dupe_threshold": threshold,
-            "min_dupe_threshold_pct": threshold_pct,
-        });
+        if pm.score >= config.min_dupe_match {
+            //log dupe error
+            let fr_err =
+                FRError::with_details(1081, "duplicate_error", "duplicate_found", json!(pm));
+            self.log_enrollment_error("create_enrollment", &fr_err).await?;
+            return Err(fr_err);
+        }
 
-        */
+        Ok(())
     }
 
     pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
@@ -322,7 +336,8 @@ impl FRService {
         let profiles = self.fr_repo.search_profiles_by_last_name(term, 100).await.map_err(|e| {
             FRError::with_details(
                 1061,
-                "Failed to search enrollments from eyefr repository",
+                "search_profiles_error",
+                "Failed to search enrollments by last name from eyefr repository",
                 json!({ "term": term, "error": e.to_string() }),
             )
         })?;
@@ -348,10 +363,12 @@ impl FRService {
                 "ext_id": ext_id,
                 "error": e.to_string(),
             });
+            //TODO: make sure this is the correct log method
             self.append_repo_log("profile_upsert_error", details.clone()).await;
             return Err(FRError::with_details(
                 1053,
-                "Failed to persist enrollment profile snapshot",
+                "save_profile_error",
+                "Failed to save profile snapshot",
                 details,
             ));
         }
@@ -359,30 +376,30 @@ impl FRService {
         Ok(())
     }
 
-    async fn persist_profile_snapshot(
-        &self,
-        ext_id: &str,
-        details: &EnrollDetails,
-        fr_id: Option<&str>,
-    ) -> FRResult<()> {
-        let profile = Self::build_profile_record(ext_id, fr_id, details);
+    // async fn persist_profile_snapshot(
+    //     &self,
+    //     ext_id: &str,
+    //     details: &EnrollDetails,
+    //     fr_id: Option<&str>,
+    // ) -> FRResult<()> {
+    //     let profile = Self::build_profile_record(ext_id, fr_id, details);
 
-        if let Err(e) = self.fr_repo.upsert_profile(&profile).await {
-            let details = json!({
-                "fr_id": fr_id,
-                "ext_id": ext_id,
-                "error": e.to_string(),
-            });
-            self.append_repo_log("profile_upsert_error", details.clone()).await;
-            return Err(FRError::with_details(
-                1053,
-                "Failed to persist enrollment profile snapshot",
-                details,
-            ));
-        }
+    //     if let Err(e) = self.fr_repo.upsert_profile(&profile).await {
+    //         let details = json!({
+    //             "fr_id": fr_id,
+    //             "ext_id": ext_id,
+    //             "error": e.to_string(),
+    //         });
+    //         self.append_repo_log("profile_upsert_error", details.clone()).await;
+    //         return Err(FRError::with_details(
+    //             1053,
+    //             "Failed to persist enrollment profile snapshot",
+    //             details,
+    //         ));
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     // async fn persist_image_snapshot(
     //     &self,
@@ -419,35 +436,15 @@ impl FRService {
     //     Ok(())
     // }
 
-    //Codex went wild here
-    async fn log_create_enrollment_failure(&self, ext_id: &str, err: &FRError) {
-        //This is wrong AF
-        let record = RegistrationErrorRecord {
-            ext_id: Some(ext_id.to_string()),
-            fr_id: None,
-            message: Some(err.message.clone()),
-        };
-
-        //TODO: this doesn't belong here.
-        if let Err(e) = self.fr_repo.insert_registration_error(&record).await {
-            warn!("failed to record registration error in eyefr: {}", e);
-        }
-
-        let code = match err.code {
-            1012 => "enrollment_quality_rejected",
-            1020 => "enrollment_duplicate_rejected",
-            _ => "enrollment_create_failed",
-        };
-
-        let payload = json!({
-            "ext_id": ext_id,
-            "code": err.code,
-            "message": err.message,
-            "details": err.details.clone(),
-        });
-        self.append_repo_log(code, payload).await;
+    async fn log_enrollment_error(&self, code: &str, err: &FRError) -> FRResult<String> {
+        warn!(code);
+        warn!(err.message);
+        let x = serde_json::to_string_pretty(&err.details).unwrap();
+        warn!(x);
+        Ok("logged enrollment error".to_string())
     }
 
+    //TODO: replace this with log_enrollment_error
     async fn append_repo_log(&self, code: &str, payload: Value) {
         if let Err(e) = self.fr_repo.append_enrollment_log(code, &payload).await {
             warn!("failed to append enrollment log '{}' to eyefr: {}", code, e);
@@ -465,7 +462,7 @@ impl FRService {
                 first_name: Some(first_name),
                 last_name: Some(last_name),
                 middle_name: None,
-                img_url: None,
+                img_url: None, //TODO: should this be filled in? file path or url?
                 raw_data: None,
                 fr_id: fr_id.map(str::to_string),
             },

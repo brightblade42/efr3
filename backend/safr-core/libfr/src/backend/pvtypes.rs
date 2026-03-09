@@ -3,16 +3,15 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use libpv::identity_grpc::identity;
 use libpv::proc_grpc::processor;
 
-use crate::{utils, AddFaceResult, EnrollmentFaceInfo, Face, GetFaceInfoResult, PossibleMatch};
+use crate::{
+    utils, AddFaceResult, EnrollmentFaceInfo, Face, GetFaceInfoResult, PossibleMatch, Template,
+};
 
-const DEFAULT_SCALING_FACTOR: f32 = 2.0;
-const DEFAULT_BUCKETS_LIMIT: i64 = 32;
-const DEFAULT_GET_FACES_PAGE_SIZE: i32 = 100;
+pub const DEFAULT_SCALING_FACTOR: f32 = 2.0;
+pub const DEFAULT_BUCKETS_LIMIT: i64 = 32;
+pub const DEFAULT_GET_FACES_PAGE_SIZE: i32 = 100;
 
-pub(crate) fn default_process_full_image_request(
-    image: Bytes,
-    find_most_prominent_face: bool,
-) -> processor::ProcessFullImageRequest {
+pub(crate) fn build_process_image_request(image: Bytes) -> processor::ProcessFullImageRequest {
     use processor::process_full_image_request::Options;
 
     processor::ProcessFullImageRequest {
@@ -23,7 +22,7 @@ pub(crate) fn default_process_full_image_request(
             Options::Quality as i32,
             Options::Mask as i32,
         ],
-        find_most_prominent_face,
+        find_most_prominent_face: true,
         scoring_mode: processor::ScoringMode::Auto as i32,
         image_source: processor::ImageSource::Unknown as i32,
         liveness_validness_parameters: None,
@@ -54,53 +53,7 @@ pub(crate) fn liveness_process_full_image_request(
     }
 }
 
-pub(crate) fn build_identities_request(
-    processed: &processor::ProcessFullImageResponse,
-    threshold: f32,
-    external_id: Option<String>,
-) -> identity::CreateIdentitiesRequest {
-    let face_idx = match processed.most_prominent_face_idx {
-        -1 => 0_usize,
-        idx if idx >= 0 => idx as usize,
-        _ => 0_usize,
-    };
-
-    let (embedding, quality) = processed
-        .faces
-        .get(face_idx)
-        .map(|face| {
-            (
-                face.embedding.clone(),
-                if face.quality.is_finite() { face.quality } else { 0.0 },
-            )
-        })
-        .unwrap_or_else(|| (vec![], 0.0));
-
-    identity::CreateIdentitiesRequest {
-        group_ids: vec![],
-        embeddings: vec![identity::Embedding { embedding }],
-        threshold,
-        model: String::new(),
-        qualities: vec![quality],
-        external_ids: external_id.into_iter().collect(),
-        scaling_factor: DEFAULT_SCALING_FACTOR,
-        buckets_limit: DEFAULT_BUCKETS_LIMIT,
-        options: vec![],
-    }
-}
-
-pub(crate) fn build_lookup_request(embedding: Vec<f32>, limit: i32) -> identity::LookupRequest {
-    identity::LookupRequest {
-        group_ids: vec![],
-        embeddings: vec![identity::Embedding { embedding }],
-        limit,
-        model: String::new(),
-        scaling_factor: DEFAULT_SCALING_FACTOR,
-        buckets_limit: DEFAULT_BUCKETS_LIMIT,
-    }
-}
-
-pub(crate) fn lookup_candidates_from_processed(
+pub(crate) fn build_lookup_request(
     processed: processor::ProcessFullImageResponse,
     limit: i32,
 ) -> Option<(Vec<processor::Face>, identity::LookupRequest)> {
@@ -249,12 +202,15 @@ impl From<processor::Face> for Face {
 
         let liveness = to_liveness(pv_face.liveness.as_ref(), pv_face.liveness_validness.as_ref());
 
+        let template =
+            (!pv_face.embedding.is_empty()).then(|| Template { embedding: pv_face.embedding });
+
         Self {
             bbox,
             acceptability: Some(pv_face.acceptability),
             quality: Some(pv_face.quality),
             mask: Some(pv_face.mask),
-            template: None,
+            template,
             liveness,
         }
     }
@@ -283,31 +239,32 @@ impl From<&processor::Face> for Face {
         }
     }
 }
-
 fn to_liveness(
     liveness: Option<&processor::Liveness>,
     validness: Option<&processor::Validness>,
 ) -> Option<crate::Liveness> {
-    liveness.map(|liveness| {
-        let feedback = validness
-            .map(|item| {
-                item.feedback
-                    .iter()
-                    .map(|code| {
-                        processor::validness::Feedback::try_from(*code)
-                            .unwrap_or(processor::validness::Feedback::Unknown)
-                            .as_str_name()
-                            .to_string()
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+    // 1. Early return if liveness is None.
+    let liveness = liveness?;
 
-        let is_live = validness.map(|item| item.is_valid).unwrap_or(false)
-            && liveness.liveness_probability > 0.5;
+    let is_valid = validness.map_or(false, |v| v.is_valid);
 
-        crate::Liveness { is_live, feedback, score: liveness.liveness_probability }
-    })
+    // 3. Process feedback without double-evaluating validness
+    let feedback = validness
+        .map(|v| v.feedback.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .map(|code| {
+            processor::validness::Feedback::try_from(*code)
+                .unwrap_or(processor::validness::Feedback::Unknown)
+                .as_str_name()
+                .to_string()
+        })
+        .collect();
+
+    let is_live = is_valid && liveness.liveness_probability > 0.5;
+
+    // Return the final mapped struct wrapped in Some
+    Some(crate::Liveness { is_live, feedback, score: liveness.liveness_probability })
 }
 
 fn default_liveness_validness_parameters(
