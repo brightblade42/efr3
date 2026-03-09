@@ -7,5 +7,11 @@ source "$SCRIPT_DIR/_common"
 IMAGE="${1:-$DEFAULT_IMAGE}"
 require_image "$IMAGE"
 
+INCLUDE_DETAILS="${2:-false}"
+
+OPTS="$(printf '{"include_details":%s'} "$INCLUDE_DETAILS" )"
+
+
 curl_json POST "/fr/v2/recognize" \
+  -F "opts=${OPTS};type=application/json" \
   -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg"

@@ -2,19 +2,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use libfr::PossibleMatch;
 use libfr::{
     backend::{FRBackend, MatchConfig},
     remote::Remote,
-    repo::{EnrollmentMetadataRecord, ProfileRecord, RegistrationErrorRecord, SqlxFrRepository},
-    AddFaceResult, DeleteFaceResult, EnrollData, EnrollDetails, EnrollmentDeleteResult,
-    EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair,
-    ResetEnrollmentsResult, SearchBy,
+    repo::{EnrollmentMetadataRecord, ProfileRecord, SqlxFrRepository},
+    DeleteFaceResult, EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult,
+    EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face, IDPair, SearchBy,
 };
+use libfr::{PossibleMatch, RecognizeOpts};
 use libtpass::types::TPassProfile;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
+//use crate::recognition_handlers::RecognizeOpts;
 use crate::runtime::{FREngine, RemoteRuntime};
 
 #[derive(Clone)]
@@ -136,10 +136,7 @@ impl FRService {
     }
 
     pub async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {
-        //Delete enrollment is handled purely by deleting a profile.
-
-        //  let response = self.fr_engine.delete_enrollment(fr_id).await?;
-
+        //NOTE: delete enrollment is handled purely by deleting a profile.
         //we may want to rename it delete enrollment? maybe..
         match self.fr_repo.delete_profile_by_fr_id(fr_id).await {
             Ok(rows_affected) => {
@@ -180,7 +177,7 @@ impl FRService {
             FRError::with_details(
                 1062,
                 "load_enrollment_metadata_error",
-                "Failed to load enrollment metadata from eyefr repository",
+                "Failed to load enrollment metadata",
                 json!({ "error": e.to_string() }),
             )
         })
@@ -191,7 +188,7 @@ impl FRService {
             FRError::with_details(
                 1064,
                 "get_enrollment_roster_error",
-                "Failed to load enrollment roster from eyefr repository",
+                "Failed to load enrollment roster",
                 json!({ "error": e.to_string() }),
             )
         })?;
@@ -199,19 +196,17 @@ impl FRService {
         Ok(roster.into_iter().map(Self::profile_to_enrollment_item).collect())
     }
 
-    pub async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsResult> {
-        let backend_result = self.fr_engine.reset_enrollments().await?;
+    pub async fn reset_enrollments(&self) -> FRResult<u64> {
+        //let backend_result = self.fr_engine.reset_enrollments().await?;
 
-        let reset = self.fr_repo.reset_enrollment_state().await.map_err(|e| {
+        Ok(self.fr_repo.reset_enrollments().await.map_err(|e| {
             FRError::with_details(
                 1065,
                 "reset_enrollments_error",
-                "PV reset succeeded but local eyefr reset failed",
+                "failed to delete all enrollments",
                 json!({ "error": e.to_string() }),
             )
-        })?;
-
-        Ok(ResetEnrollmentsResult { msg: backend_result.msg, local_reset: reset })
+        })?)
     }
 
     pub async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
@@ -281,47 +276,47 @@ impl FRService {
         }
 
         //TODO: skip if we want a local only call.
-        let remote_matches = self.remote.search_by_ids(SearchBy::ExtIDS(ext_ids), false).await?;
 
-        //now we need to reinsert the updated profile info into the details of each
-        //possible match
+        if config.include_details {
+            info!("include detail activated");
+            let remote_matches =
+                self.remote.search_by_ids(SearchBy::ExtIDS(ext_ids), false).await?;
 
-        let pmatch_profiles: HashMap<String, TPassProfile> = remote_matches
-            .into_iter()
-            .filter_map(|sr| match (sr.id, sr.details) {
-                (Some(id), Some(details)) => Some((id, details)),
-                _ => None,
-            })
-            .collect();
+            //now we need to reinsert the updated profile info into the details of each
+            //possible match
 
-        for fr_ident in &mut fr_identities {
-            for possible_match in &mut fr_ident.possible_matches {
-                //we wouldn't get there is ext was empty
-                let key = possible_match.ext_id.trim();
-                if key.is_empty() {
-                    continue;
-                }
+            let pmatch_profiles: HashMap<String, TPassProfile> = remote_matches
+                .into_iter()
+                .filter_map(|sr| match (sr.id, sr.details) {
+                    (Some(id), Some(details)) => Some((id, details)),
+                    _ => None,
+                })
+                .collect();
 
-                if let Some(details) = pmatch_profiles.get(key) {
-                    let v = serde_json::to_value(details).unwrap();
-                    possible_match.details = Some(v);
+            for fr_ident in &mut fr_identities {
+                for possible_match in &mut fr_ident.possible_matches {
+                    //we wouldn't get there is ext was empty
+                    let key = possible_match.ext_id.trim();
+                    if key.is_empty() {
+                        continue;
+                    }
+
+                    if let Some(details) = pmatch_profiles.get(key) {
+                        let v = serde_json::to_value(details).unwrap();
+                        possible_match.details = Some(v);
+                    }
                 }
             }
         }
-
         Ok(fr_identities)
     }
 
-    pub async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<AddFaceResult> {
+    pub async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo> {
         self.fr_engine.add_face(fr_id, image).await
     }
 
     pub async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
         self.fr_engine.delete_face(fr_id, face_id).await
-    }
-
-    pub async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
-        self.fr_engine.get_face_info(fr_id).await
     }
 
     pub async fn get_enrollments_by_last_name(
@@ -344,13 +339,21 @@ impl FRService {
 
         Ok(profiles.into_iter().map(Self::profile_to_enrollment_item).collect())
     }
-    pub async fn log_identity(
+    pub async fn log_cam_fr_match(
         &self,
-        fr_identity: &FRIdentity,
+        pm: &PossibleMatch,
         extra: Option<&Value>,
         location: &str,
     ) -> FRResult<()> {
-        self.fr_engine.log_identity(fr_identity, extra, location).await
+        match self.fr_repo.log_cam_fr_match(pm, extra, location).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(FRError {
+                code: 1000,
+                name: "log_fr_cam_match_error".to_string(),
+                message: e.to_string(),
+                details: None,
+            }),
+        }
     }
 
     async fn persist_profile(&self, profile: &ProfileRecord) -> FRResult<()> {

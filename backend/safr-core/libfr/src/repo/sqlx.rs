@@ -4,6 +4,8 @@ use crate::repo::{
     EnrollmentLogRecord, EnrollmentMetadataRecord, EnrollmentResetRecord, ImageRecord,
     ProfileRecord, RegistrationErrorRecord, RepoError, RepoResult,
 };
+use crate::{FRError, FRIdentity, FRResult, PossibleMatch};
+use serde_json::Value;
 
 #[derive(Clone)]
 pub struct SqlxFrRepository {
@@ -37,6 +39,28 @@ impl SqlxFrRepository {
         .bind(&profile.img_url)
         .bind(&profile.raw_data)
         .bind(&profile.fr_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn log_cam_fr_match(
+        &self,
+        pm: &PossibleMatch,
+        extra: Option<&Value>,
+        location: &str,
+    ) -> RepoResult<()> {
+        let confidence = pm.score;
+        let pm_val = serde_json::to_value(pm)?;
+
+        let res = sqlx::query(
+            r"Insert into logs.matches (pmatch, extra, location, confidence) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(pm_val)
+        .bind(extra)
+        .bind(location)
+        .bind(confidence)
         .execute(&self.pool)
         .await?;
 
@@ -367,49 +391,28 @@ impl SqlxFrRepository {
         Ok(row)
     }
 
-    pub async fn reset_enrollment_state(&self) -> RepoResult<EnrollmentResetRecord> {
-        let mut tx = self.pool.begin().await?;
-
-        let reg_res = sqlx::query(
-            r#"
-            delete from eyefr.registration_errors
-            "#,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        let log_res = sqlx::query(
-            r#"
-            delete from logs.enrollment
-            "#,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        let image_res = sqlx::query(
-            r#"
-            delete from eyefr.images
-            "#,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        let profile_res = sqlx::query(
+    pub async fn reset_enrollments(&self) -> RepoResult<u64> {
+        let res = sqlx::query(
             r#"
             delete from eyefr.profiles
             "#,
         )
-        .execute(&mut *tx)
+        .execute(&self.pool)
         .await?;
 
-        tx.commit().await?;
-
-        Ok(EnrollmentResetRecord {
-            profiles_deleted: profile_res.rows_affected() as i64,
-            images_deleted: image_res.rows_affected() as i64,
-            registration_errors_deleted: reg_res.rows_affected() as i64,
-            enrollment_logs_deleted: log_res.rows_affected() as i64,
-        })
+        Ok(res.rows_affected())
+        // Ok(EnrollmentResetRecord {
+        //     profiles_deleted: res.rows_affected() as i64,
+        //     images_deleted: 0,
+        //     registration_errors_deleted: 0,
+        //     enrollment_logs_deleted: 0,
+        // })
+        // Ok(EnrollmentResetRecord {
+        //     profiles_deleted: profile_res.rows_affected() as i64,
+        //     images_deleted: image_res.rows_affected() as i64,
+        //     registration_errors_deleted: reg_res.rows_affected() as i64,
+        //     enrollment_logs_deleted: log_res.rows_affected() as i64,
+        // })
     }
 }
 

@@ -5,11 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common"
 
 IMAGE="${1:-$DEFAULT_IMAGE}"
-ATT_KIND="${2:-check_in}"  # check_in | check_out
+ATT_KIND="${2:-check_out}"  # check_in | check_out
 LOCATION="${3:-Front Gate}"
+INCLUDE_DETAILS="${4:-true}"
 require_image "$IMAGE"
 
-OPTS="$(printf '{"top_matches":1,"include_detected_faces":false,"on_match":"id_only","min_match":0.95,"rec_location":"%s","att_kind":"%s"}' "$LOCATION" "$ATT_KIND")"
+OPTS="$(printf '{"top_matches":1,"include_detected_faces":false,"on_match":"%s","min_match":0.95,"rec_location":"%s","include_details": %s}' "$ATT_KIND" "$LOCATION" "$INCLUDE_DETAILS")"
 
 curl_json POST "/fr/v2/mark-attendance" \
   -F "opts=${OPTS};type=application/json" \

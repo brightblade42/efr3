@@ -60,7 +60,7 @@ BEGIN
     SELECT
         r->>'last_name',
         r->>'first_name',
-        r->>'middle_name', 
+        r->>'middle_name',
         r->>'ext_id',
         r->>'img_url',
         (r->>'raw_data')::jsonb
@@ -346,11 +346,39 @@ CREATE SEQUENCE logs.enrollment_id_seq
     CACHE 1;
 
 
+
+
 --
 -- Name: enrollment_id_seq; Type: SEQUENCE OWNED BY; Schema: logs; Owner: -
 --
 
 ALTER SEQUENCE logs.enrollment_id_seq OWNED BY logs.enrollment.id;
+
+
+
+CREATE TABLE logs.matches
+(
+    log_time     timestamp with time zone default now() not null,
+    detected_img text,
+    location     text,
+    confidence   numeric,
+    extra        jsonb,
+    pmatch       jsonb,
+    id           bigserial
+);
+
+comment on column logs.matches.extra is 'other related data from some other backend system';
+
+comment on column logs.matches.pmatch is 'the top verified possible match';
+
+
+create index matches_confidence_index
+    on logs.matches (confidence);
+
+create index matches_log_time_index
+    on logs.matches (log_time);
+
+
 
 
 --
@@ -752,5 +780,3 @@ ALTER TABLE ONLY public.groups_identities
 --
 -- PostgreSQL database dump complete
 --
-
-

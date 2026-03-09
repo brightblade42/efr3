@@ -2,19 +2,17 @@ use super::{
     pvtypes::{
         add_faces_request_from_processed, build_lookup_request, build_process_image_request,
         delete_faces_request, delete_identity_request, get_faces_request, list_identities_request,
-        liveness_process_full_image_request, possible_matches_from_lookup, to_add_face_result,
-        to_get_face_info_result, DEFAULT_BUCKETS_LIMIT, DEFAULT_SCALING_FACTOR,
+        liveness_process_full_image_request, possible_matches_from_lookup, DEFAULT_BUCKETS_LIMIT,
+        DEFAULT_SCALING_FACTOR,
     },
     FRBackend, FRResult, MatchConfig, Template,
 };
 use crate::{
-    backend::IDSet,
+    backend::{pvtypes::timestamp_to_rfc3339, IDSet},
     repo::{EnrollmentMetadataRecord, ProfileRecord},
+    EnrolledFaceInfo,
 };
-use crate::{
-    AddFaceResult, DeleteFaceResult, EnrollmentDeleteResult, EnrollmentRosterItem, FRError,
-    FRIdentity, Face, GetFaceInfoResult, IDPair, ResetEnrollmentsBackendResult,
-};
+use crate::{DeleteFaceResult, EnrollmentRosterItem, FRError, FRIdentity, Face, IDPair};
 use bytes::Bytes;
 use libpv::identity_grpc::{identity, PVIdentityGrpcApi};
 use libpv::proc_grpc::{processor, PVProcGrpcApi};
@@ -71,44 +69,44 @@ impl PVBackend {
         }
     }
 
-    async fn log_identification_db(
-        &self,
-        fr_identity: &FRIdentity,
-        extra: Option<&Value>,
-        location: &str,
-    ) -> FRResult<()> {
-        let pm = fr_identity.possible_matches.first().ok_or_else(|| {
-            FRError::with_code(
-                2020,
-                "log_failed_error",
-                "could not log positive identification. identity has no possible matches",
-            )
-        })?;
+    // async fn log_identification_db(
+    //     &self,
+    //     fr_identity: &FRIdentity,
+    //     extra: Option<&Value>,
+    //     location: &str,
+    // ) -> FRResult<()> {
+    //     let pm = fr_identity.possible_matches.first().ok_or_else(|| {
+    //         FRError::with_code(
+    //             2020,
+    //             "log_failed_error",
+    //             "could not log positive identification. identity has no possible matches",
+    //         )
+    //     })?;
 
-        let confidence = pm.score;
-        let pm_val = serde_json::to_value(pm)?;
+    //     let confidence = pm.score;
+    //     let pm_val = serde_json::to_value(pm)?;
 
-        let res = sqlx::query(
-            r"Insert into public.fr_log (pmatch, extra, location, confidence) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(pm_val)
-        .bind(extra)
-        .bind(location)
-        .bind(confidence)
-        .execute(&self.db)
-        .await;
+    //     let res = sqlx::query(
+    //         r"Insert into logs.matches (pmatch, extra, location, confidence) VALUES ($1, $2, $3, $4)",
+    //     )
+    //     .bind(pm_val)
+    //     .bind(extra)
+    //     .bind(location)
+    //     .bind(confidence)
+    //     .execute(&self.db)
+    //     .await;
 
-        if let Err(err) = res {
-            error!("#GREAT SCOTT! The database write failed for log_identification! {:?}", err);
-            return Err(FRError::with_code(
-                2021,
-                "log_failed_error",
-                "#GREAT SCOTT! The database write failed for log_identification!",
-            ));
-        }
+    //     if let Err(err) = res {
+    //         error!("#GREAT SCOTT! The database write failed for log_identification! {:?}", err);
+    //         return Err(FRError::with_code(
+    //             2021,
+    //             "log_failed_error",
+    //             "#GREAT SCOTT! The database write failed for log_identification!",
+    //         ));
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     fn to_fr_identities(
         &self,
@@ -172,10 +170,12 @@ impl PVBackend {
 }
 
 impl FRBackend for PVBackend {
+    //TODO: maybe kill this
     async fn generate_template(&self, image: Bytes) -> FRResult<Vec<Template>> {
         Ok(vec![])
     }
 
+    //TODO: maybe kill this
     async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet> {
         Ok(IDSet { fr_id: "abc_123".into(), ext_id: ext_id.into() })
     }
@@ -202,40 +202,7 @@ impl FRBackend for PVBackend {
         Ok(IDPair { fr_id: fr_id.id, ext_id: ext_id.to_string() })
     }
 
-    // async fn delete_enrollment(&self, face_id: &str) -> FRResult<EnrollmentDeleteResult> {
-    //     let del_req = delete_identity_request(face_id);
-
-    //     let res = self.ident_api.delete_identities(del_req).await;
-
-    //     match res {
-    //         Ok(delete_response) if delete_response.rows_affected > 0 => {
-    //             Ok(EnrollmentDeleteResult { fr_id: face_id.to_string() })
-    //         }
-    //         Ok(_) => {
-    //             let details = json!({ "fr_id": face_id });
-    //             let fr_err = FRError::with_details(
-    //                 1090,
-    //                 "delete_enrollment_error",
-    //                 "paravision returned no rows for delete request",
-    //                 details.clone(),
-    //             );
-    //             self.log_delete_err("delete_enrollment", &fr_err, Some(details)).await;
-    //             Err(fr_err)
-    //         }
-    //         Err(e) => {
-    //             let details = json!({ "fr_id": face_id });
-    //             let fr_err = FRError::with_details(
-    //                 e.code,
-    //                 "delete_enrollment_error",
-    //                 &e.message,
-    //                 details.clone(),
-    //             );
-    //             self.log_delete_err("delete_enrollment", &fr_err, Some(details)).await;
-    //             Err(fr_err)
-    //         }
-    //     }
-    // }
-
+    //retrieve some basic count. could be better
     async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
             r#"
@@ -259,6 +226,7 @@ impl FRBackend for PVBackend {
         })
     }
 
+    //TODO: needs work. need a paging strategy
     async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
         let rows = sqlx::query_as::<_, ProfileRecord>(
             r#"
@@ -272,25 +240,6 @@ impl FRBackend for PVBackend {
         .await?;
 
         Ok(rows.into_iter().map(Self::profile_to_enrollment_item).collect())
-    }
-
-    async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult> {
-        let list_req = list_identities_request(100000);
-        let identities = self.ident_api.get_identities(list_req).await?.identities;
-
-        let deleted_count = identities.len();
-        for identity in identities {
-            let delete_req = delete_identity_request(&identity.id);
-            if let Err(err) = self.ident_api.delete_identities(delete_req).await {
-                warn!("reset_enrollments failed deleting {}: {}", identity.id, err);
-            }
-        }
-
-        info!("Enrollments deleted from pv: {}", deleted_count);
-
-        Ok(ResetEnrollmentsBackendResult {
-            msg: "All PV enrollments have been deleted. System reset.".to_string(),
-        })
     }
 
     async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
@@ -338,14 +287,26 @@ impl FRBackend for PVBackend {
         Ok(idents)
     }
 
-    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<AddFaceResult> {
+    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo> {
         let process_req = build_process_image_request(image);
         let processed = self.proc_api.process_full_image(process_req).await?;
 
         let add_req = add_faces_request_from_processed(processed, fr_id.to_string(), 0.0);
         let face_resp = self.ident_api.add_faces(add_req).await?;
 
-        Ok(to_add_face_result(face_resp))
+        let face = face_resp.faces.into_iter().next().ok_or_else(|| FRError {
+            code: 1000,
+            name: "add_face_error".to_string(),
+            message: "Face was not added to identity".to_string(),
+            details: None,
+        })?;
+
+        Ok(EnrolledFaceInfo {
+            face_id: face.id,
+            fr_id: face.identity_id,
+            created_at: timestamp_to_rfc3339(face.created_at),
+            quality: face.quality,
+        })
     }
 
     async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
@@ -353,12 +314,6 @@ impl FRBackend for PVBackend {
         let res = self.ident_api.delete_faces(delete_req).await?;
 
         Ok(DeleteFaceResult { rows_affected: res.rows_affected })
-    }
-
-    async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
-        let req = get_faces_request(fr_id);
-        let res = self.ident_api.get_faces(req).await?;
-        Ok(to_get_face_info_result(res))
     }
 
     async fn get_enrollments_by_last_name(
@@ -380,14 +335,5 @@ impl FRBackend for PVBackend {
         .await?;
 
         Ok(rows.into_iter().map(Self::profile_to_enrollment_item).collect())
-    }
-
-    async fn log_identity(
-        &self,
-        fr_identity: &FRIdentity,
-        extra: Option<&Value>,
-        location: &str,
-    ) -> FRResult<()> {
-        self.log_identification_db(fr_identity, extra, location).await
     }
 }

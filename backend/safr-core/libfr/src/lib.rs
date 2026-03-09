@@ -90,6 +90,10 @@ impl From<serde_json::Error> for FRError {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RecognizeOpts {
+    pub include_details: bool,
+}
 //image and details are sent in a request using multipart formdata which we parse
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EnrollData {
@@ -137,40 +141,16 @@ pub struct EnrollmentRosterItem {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResetEnrollmentsBackendResult {
-    pub msg: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResetEnrollmentsResult {
-    pub msg: String,
-    pub local_reset: repo::EnrollmentResetRecord,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EnrollmentFaceInfo {
-    pub id: String,
-    pub identity_id: String,
+pub struct EnrolledFaceInfo {
+    pub face_id: String,
+    pub fr_id: String,
     pub created_at: String,
-    pub model: String,
     pub quality: f32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AddFaceResult {
-    pub faces: Vec<EnrollmentFaceInfo>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeleteFaceResult {
     pub rows_affected: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GetFaceInfoResult {
-    pub faces: Vec<EnrollmentFaceInfo>,
-    pub next_page_token: String,
-    pub total_size: i32,
 }
 
 //recognition types
@@ -183,6 +163,7 @@ pub struct PossibleMatch {
     #[serde(default, alias = "confidence_pct")]
     pub score_pct: f32,
     pub ext_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>, //most likely some kind of remote profile info
 }
 

@@ -10,6 +10,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::{errors::AppError, errors::AppError::Generic, extractors, AppState, WResult};
 
+/// mark_attendance will recognize a face in an image and notify the remote (tpass) that someone
+/// has entered or exited a building or room.
 pub async fn mark_attendance(
     State(app_state): State<AppState>,
     multipart: Multipart,
@@ -17,8 +19,10 @@ pub async fn mark_attendance(
     let mut mconf = MatchConfig::from(&app_state.config);
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
 
-    mconf.top_n = img_data.opts.as_ref().map_or(mconf.top_n, |opts| opts.top_matches as i32);
-
+    if let Some(opts) = &img_data.opts {
+        mconf.top_n = opts.top_matches as i32;
+        mconf.include_details = opts.include_details;
+    }
     // Image unwrap is safe due to extract_image_data guard
     let res = app_state.fr_service.recognize(img_data.image.unwrap(), mconf).await?;
 
@@ -26,6 +30,8 @@ pub async fn mark_attendance(
         debug!("mark_attendance: recognition produced nothing so we bail empty array returned.");
         return Ok(Json(json!({})));
     }
+
+    //not likely to occur
     if res.len() > 1 {
         warn!(
             "mark_attendance identified {} faces. This is not supported in this version",
@@ -48,7 +54,6 @@ pub async fn mark_attendance(
     })?;
 
     let idpair = (idnum.to_string(), ccode);
-
     // 3. Immutably unpack options using map_or
     let (att_kind, location) = img_data.opts.map_or((None, String::new()), |opt| {
         let kind = match opt.on_match.as_str() {
@@ -61,7 +66,7 @@ pub async fn mark_attendance(
 
     info!("att kind: {:?}", &att_kind);
 
-    // 4. Resolve the external service call
+    //tell TPASS we're checking in or out.
     let status = match att_kind {
         Some(kind) => app_state
             .tpass_client
@@ -71,22 +76,18 @@ pub async fn mark_attendance(
         None => None,
     };
 
-    // 5. Construct the final struct immutably
-    let v_ident = VerifiedIdentity { identity: fr_ident, status };
+    let extra = serde_json::to_value(&status).ok();
 
-    let extra = serde_json::to_value(&v_ident.status).ok();
-    app_state
-        .fr_service
-        .log_identity(&v_ident.identity, extra.as_ref(), &location)
-        .await?;
+    let pm = fr_ident.possible_matches.first().unwrap();
+    app_state.fr_service.log_cam_fr_match(&pm, extra.as_ref(), &location).await?;
 
-    let value = serde_json::to_value(v_ident)
-        .map_err(|e| Generic(format!("failed to serialize attendance result: {}", e)))?;
-
-    Ok(Json(value))
+    Ok(Json(json!({
+        "identity": fr_ident,
+        "status": status
+    })))
 }
 
-// Flattened helper function
+//make sure we have the personal information required for top match
 fn validate_details(fr_ident: &FRIdentity) -> WResult<Value> {
     fr_ident
         .possible_matches
@@ -98,111 +99,6 @@ fn validate_details(fr_ident: &FRIdentity) -> WResult<Value> {
         })
 }
 
-// The image sent to this endpoint should be a single face, but we can't know that for sure.
-// We actually do have a strong idea that this WILL be a single face since we only get
-// single faces from cam server because it only gets single faces from paravision stream
-/// mark_attendance will recognize a face in an image and notify the remote (tpass) that someone
-/// has entered or exited a building or room.
-// pub async fn mark_attendance(
-//     State(app_state): State<AppState>,
-//     multipart: Multipart,
-// ) -> WResult<Json<Value>> {
-//     let mut mconf = MatchConfig::from(&app_state.config);
-//     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-//     mconf.top_n = img_data.opts.as_ref().map_or(mconf.top_n, |opts| opts.top_matches as i32);
-//     let res = app_state.fr_service.recognize(img_data.image.unwrap(), mconf).await?;
-
-//     // TODO: Consider how to better handle recognition results. We only want to deal with a
-//     // single face. If we have more than one face then we have false positives or an image with
-//     // multiple faces which is not what we want. (at least in this version)
-//     let fr_ident = match res.len() {
-//         0 => {
-//             debug!(
-//                 "mark_attendance: recognition produced nothing so we bail empty array returned."
-//             );
-//             return Ok(Json(json!({})));
-//         }
-//         1 => res
-//             .into_iter()
-//             .next()
-//             .ok_or_else(|| Generic("recognition result was unexpectedly empty".to_string()))?,
-//         _ => {
-//             warn!(
-//                 "mark_attendance identified {} faces. This is not supported in this version",
-//                 res.len()
-//             );
-//             res.into_iter()
-//                 .next()
-//                 .ok_or_else(|| Generic("recognition result was unexpectedly empty".to_string()))?
-//         }
-//     };
-
-//     let details = validate_details(&fr_ident)?;
-
-//     // Attendance (checkin or out) can only be done if there is an "idnumber" present.
-//     let idpair = if let Some(idnum) = details["idnumber"].as_str() {
-//         if idnum.is_empty() {
-//             return Err(Generic(
-//                 "An client idnumber is required to record attendance. check with tpass".to_string(),
-//             ));
-//         }
-//         let ccode = parse_ccode(&details).ok_or_else(|| {
-//             Generic("A valid client ccode is required to record attendance".to_string())
-//         })?;
-//         (idnum.to_string(), ccode)
-//     } else {
-//         return Err(Generic(
-//             "An client idnumber is required to record attendance. check with tpass".to_string(),
-//         ));
-//     };
-
-//     let mut v_ident = VerifiedIdentity { identity: fr_ident, status: None };
-
-//     debug!("THE OPTS: {:?}", img_data.opts);
-//     let mut att_kind = None;
-//     let mut location = "".to_string();
-//     match img_data.opts {
-//         Some(opt) => {
-//             att_kind = match opt.on_match.as_str() {
-//                 "check_in" => Some(AttendanceKind::In),
-//                 "check_out" => Some(AttendanceKind::Out),
-//                 _ => None,
-//             };
-
-//             location = opt.rec_location.clone();
-
-//             Some(())
-//         }
-//         None => None,
-//     };
-
-//     info!("att kind: {:?}", &att_kind);
-//     v_ident.status = match att_kind {
-//         Some(kind @ AttendanceKind::In) | Some(kind @ AttendanceKind::Out) => app_state
-//             .tpass_client
-//             .mark_attendance(idpair, kind)
-//             .await
-//             .map_err(|e| AppError::Generic(format!("couldn't mark attendance: {}", e)))?,
-//         _ => None,
-//     };
-
-//     let extra = serde_json::to_value(&v_ident.status).ok();
-//     app_state
-//         .fr_service
-//         .log_identity(&v_ident.identity, extra.as_ref(), &location)
-//         .await?;
-
-//     let value = serde_json::to_value(v_ident)
-//         .map_err(|e| Generic(format!("failed to serialize attendance result: {}", e)))?;
-//     Ok(Json(value))
-// }
-
 fn parse_ccode(details: &Value) -> Option<u64> {
     details.get("ccode").and_then(Value::as_u64)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct VerifiedIdentity {
-    identity: FRIdentity,
-    status: Option<AttendanceStatus>,
 }

@@ -2,19 +2,17 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 #[cfg(test)]
-use libfr::EnrollmentFaceInfo;
+use libfr;
 use libfr::{
     backend::{paravision::PVBackend, FRBackend, IDSet, MatchConfig},
     remote::{RegistrationPair, Remote, SearchResult},
     repo::EnrollmentMetadataRecord,
-    AddFaceResult, DeleteFaceResult, EnrollData, EnrollmentDeleteResult, EnrollmentRosterItem,
-    FRIdentity, FRResult, Face, GetFaceInfoResult, IDPair, ResetEnrollmentsBackendResult, SearchBy,
-    Template,
+    DeleteFaceResult, EnrollData, EnrolledFaceInfo, EnrollmentRosterItem, FRIdentity, FRResult,
+    Face, IDPair, SearchBy, Template,
 };
 use libtpass::api::TPassClient;
 #[cfg(test)]
 use serde_json::json;
-use serde_json::Value;
 use sqlx::PgPool;
 
 const DEFAULT_BACKEND: &str = "paravision-grpc";
@@ -138,17 +136,6 @@ impl FRBackend for FREngine {
         }
     }
 
-    //TODO: call this process_full_image. someting to indicate that
-    // this is the kitchen sink call to get a full analysis of an image.
-    // this is the most expensive call for the processor api
-    // async fn validate_image(&self, image: Bytes) -> FRResult<Vec<Face>> {
-    //     match self {
-    //         Self::Paravision(backend) => backend.validate_image(image).await,
-    //         #[cfg(test)]
-    //         Self::Mock => Ok(vec![]),
-    //     }
-    // }
-
     //TODO: indicate if we only want most prominent? or do after the fact?
     async fn generate_template(&self, image: Bytes) -> FRResult<Vec<libfr::Template>> {
         match self {
@@ -165,15 +152,6 @@ impl FRBackend for FREngine {
             Self::Mock => Ok(IDSet { ext_id: "112233".to_string(), fr_id: "abc_123".to_string() }),
         }
     }
-
-    //TODO: this is no longer needed
-    // async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {
-    //     match self {
-    //         Self::Paravision(backend) => backend.delete_enrollment(fr_id).await,
-    //         #[cfg(test)]
-    //         Self::Mock => Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() }),
-    //     }
-    // }
 
     async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         match self {
@@ -201,14 +179,6 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult> {
-        match self {
-            Self::Paravision(backend) => backend.reset_enrollments().await,
-            #[cfg(test)]
-            Self::Mock => Ok(ResetEnrollmentsBackendResult { msg: "mock reset".to_string() }),
-        }
-    }
-
     async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         match self {
             Self::Paravision(backend) => backend.detect_faces(image, liveness_check).await,
@@ -225,18 +195,15 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<AddFaceResult> {
+    async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo> {
         match self {
             Self::Paravision(backend) => backend.add_face(fr_id, image).await,
             #[cfg(test)]
-            Self::Mock => Ok(AddFaceResult {
-                faces: vec![EnrollmentFaceInfo {
-                    id: "mock-face-id".to_string(),
-                    identity_id: fr_id.to_string(),
-                    created_at: "2024-01-01T00:00:00Z".to_string(),
-                    model: "mock".to_string(),
-                    quality: 0.99,
-                }],
+            Self::Mock => Ok(EnrolledFaceInfo {
+                face_id: "mock-face-id".to_string(),
+                fr_id: fr_id.to_string(),
+                created_at: "2024-01-01T00:00:00Z".to_string(),
+                quality: 0.99,
             }),
         }
     }
@@ -252,24 +219,6 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult> {
-        match self {
-            Self::Paravision(backend) => backend.get_face_info(fr_id).await,
-            #[cfg(test)]
-            Self::Mock => Ok(GetFaceInfoResult {
-                faces: vec![EnrollmentFaceInfo {
-                    id: "mock-face-id".to_string(),
-                    identity_id: fr_id.to_string(),
-                    created_at: "2024-01-01T00:00:00Z".to_string(),
-                    model: "mock".to_string(),
-                    quality: 0.99,
-                }],
-                next_page_token: String::new(),
-                total_size: 1,
-            }),
-        }
-    }
-
     async fn get_enrollments_by_last_name(
         &self,
         name: &str,
@@ -278,19 +227,6 @@ impl FRBackend for FREngine {
             Self::Paravision(backend) => backend.get_enrollments_by_last_name(name).await,
             #[cfg(test)]
             Self::Mock => Ok(vec![]),
-        }
-    }
-
-    async fn log_identity(
-        &self,
-        fr_identity: &FRIdentity,
-        extra: Option<&Value>,
-        location: &str,
-    ) -> FRResult<()> {
-        match self {
-            Self::Paravision(backend) => backend.log_identity(fr_identity, extra, location).await,
-            #[cfg(test)]
-            Self::Mock => Ok(()),
         }
     }
 }

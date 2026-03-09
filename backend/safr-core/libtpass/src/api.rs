@@ -272,7 +272,7 @@ impl TPassClient {
             (AttendanceKind::Out, _, true) => CheckState::LastKnown,
             // They checked in, and have not checked out. Ready to check out!
             (AttendanceKind::Out, true, false) => CheckState::Out,
-            // They never checked in, so they mathematically cannot check out.
+            // They never checked in, so impossible to check out.
             (AttendanceKind::Out, false, false) => CheckState::None,
         }
     }

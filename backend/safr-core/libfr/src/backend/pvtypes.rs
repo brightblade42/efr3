@@ -3,9 +3,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use libpv::identity_grpc::identity;
 use libpv::proc_grpc::processor;
 
-use crate::{
-    utils, AddFaceResult, EnrollmentFaceInfo, Face, GetFaceInfoResult, PossibleMatch, Template,
-};
+use crate::{utils, Face, PossibleMatch, Template};
 
 pub const DEFAULT_SCALING_FACTOR: f32 = 2.0;
 pub const DEFAULT_BUCKETS_LIMIT: i64 = 32;
@@ -143,27 +141,27 @@ pub(crate) fn identity_created_at(identity: &identity::Identity) -> String {
     timestamp_to_rfc3339(identity.created_at.clone())
 }
 
-pub(crate) fn to_add_face_result(response: identity::AddFacesResponse) -> AddFaceResult {
-    AddFaceResult { faces: response.faces.into_iter().map(to_enrollment_face_info).collect() }
-}
+// pub(crate) fn to_add_face_result(response: identity::AddFacesResponse) -> AddFaceResult {
+//     AddFaceResult { faces: response.faces.into_iter().map(to_enrollment_face_info).collect() }
+// }
 
-pub(crate) fn to_get_face_info_result(response: identity::GetFacesResponse) -> GetFaceInfoResult {
-    GetFaceInfoResult {
-        faces: response.faces.into_iter().map(to_enrollment_face_info).collect(),
-        next_page_token: response.next_page_token,
-        total_size: response.total_size,
-    }
-}
+// pub(crate) fn to_get_face_info_result(response: identity::GetFacesResponse) -> GetFaceInfoResult {
+//     GetFaceInfoResult {
+//         faces: response.faces.into_iter().map(to_enrollment_face_info).collect(),
+//         next_page_token: response.next_page_token,
+//         total_size: response.total_size,
+//     }
+// }
 
-pub(crate) fn to_enrollment_face_info(face: identity::Face) -> EnrollmentFaceInfo {
-    EnrollmentFaceInfo {
-        id: face.id,
-        identity_id: face.identity_id,
-        created_at: timestamp_to_rfc3339(face.created_at),
-        model: face.model,
-        quality: face.quality,
-    }
-}
+// pub(crate) fn to_enrollment_face_info(face: identity::Face) -> EnrollmentFaceInfo {
+//     EnrollmentFaceInfo {
+//         id: face.id,
+//         identity_id: face.identity_id,
+//         created_at: timestamp_to_rfc3339(face.created_at),
+//         model: face.model,
+//         quality: face.quality,
+//     }
+// }
 
 pub(crate) fn possible_matches_from_lookup(
     lookup: &identity::LookupIdentity,
@@ -285,7 +283,7 @@ fn default_liveness_validness_parameters(
     params
 }
 
-fn timestamp_to_rfc3339(timestamp: Option<prost_types::Timestamp>) -> String {
+pub(crate) fn timestamp_to_rfc3339(timestamp: Option<prost_types::Timestamp>) -> String {
     let Some(timestamp) = timestamp else {
         return String::new();
     };

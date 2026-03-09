@@ -117,16 +117,18 @@ impl Config {
 fn api_v2_routes() -> Router<AppState> {
     Router::new()
         .route("/enrollment/create", post(enrollment_handlers::create_enrollment))
-        //TODO: should the replace the get_enrollment_roster?
         .route("/enrollment/search", post(enrollment_handlers::search_enrollment))
         .route("/enrollment/delete", post(enrollment_handlers::delete_enrollment))
+        //TODO
         .route("/enrollment/add-face", post(enrollment_handlers::add_face))
         .route("/enrollment/delete-face", post(enrollment_handlers::delete_face))
-        .route("/get-identity", post(enrollment_handlers::get_face_info))
+        //TODO: not sure about this.
+        //.route("/get-identity", post(enrollment_handlers::get_face_info))
         //PROFILE interacts with REMOTE
         .route("/create-profile", post(profile_handlers::create_profile))
         .route("/edit-profile", post(profile_handlers::edit_profile))
         .route("/send-alert", post(tpass_handlers::send_fr_alert))
+        //TODOD: this name needs to be better.
         .route("/mark-attendance", post(attendance_handlers::mark_attendance))
         //NOTE: deprecated in favor of liveness-check, clearer name
         //TODO: delete validate-image after liveness demo is complete
@@ -143,11 +145,8 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/enrollment/reset", post(enrollment_handlers::reset_enrollments))
         //TODO: implement or discard
         .route("/enrollment/errlog", post(enrollment_handlers::get_enrollment_errlog))
-        .route(
-            "/enrollment/metadata",
-            get(enrollment_handlers::get_enrollment_metadata)
-                .post(enrollment_handlers::create_collection),
-        )
+        .route("/enrollment/metadata", get(enrollment_handlers::get_enrollment_metadata))
+        //gets all the enrollments 100 max atm
         .route("/enrollment/roster", get(enrollment_handlers::get_enrollment_roster))
 }
 
@@ -162,6 +161,10 @@ fn tpass_routes() -> Router<AppState> {
         .route("/search", post(tpass_handlers::search_tpass))
         .fallback(fallback1)
 }
+
+//TODO: add v1 routes as needed for compat
+//        //v1 endpoint for cam app, deprecated
+//.route("/recognize-faces-b64", post(attendance_handlers::mark_attendance))
 
 #[tokio::main]
 async fn main() {
@@ -284,6 +287,7 @@ impl From<&Config> for MatchConfig {
             top_n_min_match: 0.80,
             min_quality: c.min_quality,
             min_acceptability: c.min_acceptability,
+            include_details: false,
         }
     }
 }

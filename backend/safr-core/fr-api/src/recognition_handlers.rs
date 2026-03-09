@@ -2,6 +2,7 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::info;
 
@@ -104,11 +105,13 @@ pub async fn recognize(
     State(app_state): State<AppState>,
     multipart: Multipart,
 ) -> WResult<Json<Value>> {
-    let want_details = true;
     let mut mconf = MatchConfig::from(&app_state.config);
 
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-    mconf.top_n = img_data.opts.as_ref().map_or(mconf.top_n, |opts| opts.top_matches as i32);
+    if let Some(opts) = &img_data.opts {
+        mconf.top_n = opts.top_matches as i32;
+        mconf.include_details = opts.include_details;
+    }
     let image = img_data.image.unwrap();
 
     let mut identities = app_state.fr_service.recognize(image, mconf).await?;
@@ -119,10 +122,6 @@ pub async fn recognize(
             let x2 = b.face.bbox.as_ref().map_or(f32::MAX, |bbox| bbox.origin.x);
             x1.partial_cmp(&x2).unwrap_or(std::cmp::Ordering::Equal)
         });
-    }
-
-    if want_details {
-        info!("details for all possible matches is wanted");
     }
 
     Ok(Json(json!(identities)))

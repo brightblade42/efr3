@@ -4,10 +4,7 @@ use axum::{
 };
 use libfr::backend::MatchConfig;
 use libfr::repo::EnrollmentMetadataRecord;
-use libfr::{
-    AddFaceResult, EnrollmentDeleteResult, EnrollmentRosterItem, GetFaceInfoResult, IDPair,
-    ResetEnrollmentsResult,
-};
+use libfr::{EnrolledFaceInfo, EnrollmentDeleteResult, EnrollmentRosterItem, IDPair};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::info;
@@ -58,29 +55,25 @@ pub async fn delete_enrollment(
 }
 
 /// Deletes all enrollments and resets everything.
-pub async fn reset_enrollments(
-    State(app_state): State<AppState>,
-) -> WResult<Json<ResetEnrollmentsResult>> {
+pub async fn reset_enrollments(State(app_state): State<AppState>) -> WResult<Json<Value>> {
     let res = app_state.fr_service.reset_enrollments().await?;
-    Ok(Json(res))
+    let mut msg = "All enrollments deleted";
+    if res == 0 {
+        msg = "There were no existing enrollments to delete";
+    }
+    Ok(Json(json!({
+        "msg": msg.to_string(),
+        "total": res
+    })))
 }
 
 pub async fn add_face(
     State(app_state): State<AppState>,
-    Query(query): Query<AddFaceQuery>,
     multipart: Multipart,
-) -> WResult<Json<AddFaceResult>> {
-    let fr_id = query.fr_id.trim();
-    if fr_id.is_empty() {
-        return Err(Generic("fr_id query param is required for add-face".to_string()));
-    }
+) -> WResult<Json<EnrolledFaceInfo>> {
+    let face_req = extractors::extract_add_face_form_data(multipart).await?;
 
-    let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
-    let image = img_data
-        .image
-        .ok_or_else(|| Generic("No image was provided for add-face".to_string()))?;
-
-    let res = app_state.fr_service.add_face(fr_id, image).await?;
+    let res = app_state.fr_service.add_face(&face_req.fr_id, face_req.image.unwrap()).await?;
     Ok(Json(res))
 }
 
@@ -98,18 +91,6 @@ pub async fn delete_face(
         fr_id: req.fr_id,
         face_id: req.face_id,
     }))
-}
-
-pub async fn get_face_info(
-    State(app_state): State<AppState>,
-    Json(req): Json<GetFaceInfoRequest>,
-) -> WResult<Json<GetFaceInfoResult>> {
-    if req.fr_id.trim().is_empty() {
-        return Err(Generic("fr_id is required to get face info".to_string()));
-    }
-
-    let res = app_state.fr_service.get_face_info(&req.fr_id).await?;
-    Ok(Json(res))
 }
 
 pub async fn get_enrollment_errlog(State(app_state): State<AppState>) -> WResult<Json<Value>> {
@@ -133,11 +114,6 @@ pub async fn get_enrollment_metadata(
     Ok(Json(res))
 }
 
-/// A collection is another term for "gallery" or "roster".
-pub async fn create_collection(State(_app_state): State<AppState>) -> WResult<Json<Value>> {
-    Ok(Json(json!({ "msg": "not yet implemented"})))
-}
-
 async fn resolve_fr_id_for_delete(
     app_state: &AppState,
     del_by: DeleteEnrollmentBy,
@@ -150,6 +126,7 @@ async fn resolve_fr_id_for_delete(
             }
             Ok(trimmed.to_string())
         }
+        //TODO: rename CCode to ExtID
         DeleteEnrollmentBy::CCode(ccode) => {
             let ext_id = ccode.to_string();
 
@@ -172,6 +149,7 @@ async fn resolve_fr_id_for_delete(
                 .fr_id
                 .ok_or_else(|| Generic(format!("profile for external id {} has no fr_id", ext_id)))
         }
+        //NOTE: might be a bit dangerous
         DeleteEnrollmentBy::Name(first, last) => {
             let profile = app_state
                 .fr_repo
@@ -242,8 +220,9 @@ pub(crate) enum SearchEnrollmentBy {
     LastName(String),
 }
 
-#[derive(Deserialize, Debug)]
-pub(crate) struct AddFaceQuery {
+//TODO: deprecate
+#[derive(Deserialize, Debug, Clone)]
+pub(crate) struct AddFaceRequest {
     pub fr_id: String,
 }
 
