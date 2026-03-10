@@ -91,7 +91,8 @@ pub async fn detect_faces(
     let mut faces = app_state.fr_service.detect_faces(image, false).await?;
 
     for f in &mut faces {
-        f.liveness = None
+        f.liveness = None;
+        f.template = None;
     }
 
     Ok(Json(json!(faces)))

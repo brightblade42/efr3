@@ -33,6 +33,6 @@ PAYLOAD="{\"fr_id\": \"$FR_ID\", \"face_ids\": $FACE_IDS_JSON}"
 echo "Sending Payload: $PAYLOAD"
 
 # 6. Fire it at your Axum endpoint!
-curl_json  POST "/fr/v2/enrollment/delete-face" \
+curl_json  POST "/fr/v2/enrollment/delete-faces" \
      -H "Content-Type: application/json" \
      -d "$PAYLOAD"

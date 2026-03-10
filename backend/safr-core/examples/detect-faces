@@ -7,5 +7,5 @@ source "$SCRIPT_DIR/_common"
 IMAGE="${1:-$DEFAULT_IMAGE}"
 require_image "$IMAGE"
 
-curl_json POST "/fr/v2/detect" \
+curl_json POST "/fr/v2/detect-faces" \
   -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg"

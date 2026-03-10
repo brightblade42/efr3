@@ -97,7 +97,7 @@ impl Config {
             db_max_connections: env::var("SAFR_DB_MAX_CONNECTIONS")
                 .ok()
                 .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(5),
+                .unwrap_or(10),
 
             //NOTE: this is currently handled by a reverse proxy.
             _cert_dir: env::var("CERT_DIR").unwrap_or("/cert".to_string()), //should we keep env?
@@ -121,7 +121,7 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/enrollment/delete", post(enrollment_handlers::delete_enrollment))
         //TODO
         .route("/enrollment/add-face", post(enrollment_handlers::add_face))
-        .route("/enrollment/delete-face", post(enrollment_handlers::delete_faces))
+        .route("/enrollment/delete-faces", post(enrollment_handlers::delete_faces))
         //TODO: not sure about this.
         //.route("/get-identity", post(enrollment_handlers::get_face_info))
         //PROFILE interacts with REMOTE
@@ -137,7 +137,7 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/liveness-check", post(recognition_handlers::liveness_check))
         //just the quality. validate is a more verbose version
         .route("/quality-check", post(recognition_handlers::quality_check))
-        .route("/detect", post(recognition_handlers::detect_faces)) //detect, bbox.
+        .route("/detect-faces", post(recognition_handlers::detect_faces)) //detect, bbox.
         .route("/recognize", post(recognition_handlers::recognize))
         //a combo on recognition and notifying remote of building entrance / exit.
         //NOTE: this is a very dangerous function. maybe we block it.
@@ -149,6 +149,7 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/enrollment/roster", get(enrollment_handlers::get_enrollment_roster))
 }
 
+//NOTE: if TPASS is not the remote, these won't do shit.
 fn tpass_routes() -> Router<AppState> {
     Router::new()
         .route("/get-companies", get(tpass_handlers::get_tpass_companies))
@@ -186,6 +187,7 @@ async fn main() {
     );
 
     let db_pool = match PgPoolOptions::new()
+        .min_connections(5)
         .max_connections(config.db_max_connections)
         .connect(&db_conn)
         .await

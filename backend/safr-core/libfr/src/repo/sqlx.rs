@@ -345,7 +345,7 @@ impl SqlxFrRepository {
     pub async fn get_enrollment_logs(&self, limit: i64) -> RepoResult<Vec<EnrollmentLogRecord>> {
         let rows = sqlx::query_as::<_, EnrollmentLogRecord>(
             r#"
-            select id, code, payload, retry_count
+            select id, code, payload, retry_count, created_at, updated_at
             from logs.enrollment
             order by id desc
             limit $1
