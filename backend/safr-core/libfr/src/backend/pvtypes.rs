@@ -7,7 +7,6 @@ use crate::{utils, Face, PossibleMatch, Template};
 
 pub const DEFAULT_SCALING_FACTOR: f32 = 2.0;
 pub const DEFAULT_BUCKETS_LIMIT: i64 = 32;
-pub const DEFAULT_GET_FACES_PAGE_SIZE: i32 = 100;
 
 pub(crate) fn build_process_image_request(image: Bytes) -> processor::ProcessFullImageRequest {
     use processor::process_full_image_request::Options;
@@ -118,27 +117,15 @@ pub(crate) fn get_faces_request(fr_id: &str) -> identity::GetFacesRequest {
     identity::GetFacesRequest {
         identity_id: fr_id.to_string(),
         page_token: String::new(),
-        page_size: DEFAULT_GET_FACES_PAGE_SIZE,
+        page_size: 100,
     }
 }
 
-pub(crate) fn delete_faces_request(fr_id: &str, face_id: &str) -> identity::DeleteFacesRequest {
-    identity::DeleteFacesRequest {
-        identity_id: fr_id.to_string(),
-        face_ids: vec![face_id.to_string()],
-    }
-}
-
-pub(crate) fn delete_identity_request(fr_id: &str) -> identity::DeleteIdentitiesRequest {
-    identity::DeleteIdentitiesRequest { ids: vec![fr_id.to_string()], external_ids: vec![] }
-}
-
-pub(crate) fn list_identities_request(page_size: i32) -> identity::GetIdentitiesRequest {
-    identity::GetIdentitiesRequest { group_ids: vec![], page_token: String::new(), page_size }
-}
-
-pub(crate) fn identity_created_at(identity: &identity::Identity) -> String {
-    timestamp_to_rfc3339(identity.created_at.clone())
+pub(crate) fn delete_faces_request(
+    fr_id: &str,
+    face_ids: Vec<String>,
+) -> identity::DeleteFacesRequest {
+    identity::DeleteFacesRequest { identity_id: fr_id.to_string(), face_ids: face_ids }
 }
 
 // pub(crate) fn to_add_face_result(response: identity::AddFacesResponse) -> AddFaceResult {

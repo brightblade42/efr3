@@ -6,7 +6,6 @@ use libtpass::types::NewProfileRequest;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
 
-use crate::enrollment_handlers::AddFaceRequest;
 use crate::errors::AppError;
 use crate::errors::AppError::Generic;
 

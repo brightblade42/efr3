@@ -3,12 +3,11 @@ use axum::{
     Json,
 };
 use libfr::{backend::MatchConfig, FRIdentity};
-use libtpass::types::{AttendanceKind, AttendanceStatus};
-use serde::{Deserialize, Serialize};
+use libtpass::types::AttendanceKind;
 use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};
 
-use crate::{errors::AppError, errors::AppError::Generic, extractors, AppState, WResult};
+use crate::{errors::AppError::Generic, extractors, AppState, WResult};
 
 /// mark_attendance will recognize a face in an image and notify the remote (tpass) that someone
 /// has entered or exited a building or room.

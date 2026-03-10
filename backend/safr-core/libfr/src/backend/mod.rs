@@ -6,7 +6,6 @@ use crate::{
     Template,
 };
 use bytes::Bytes;
-use serde_json::Value;
 
 #[allow(async_fn_in_trait)]
 pub trait FRBackend: Send + Sync {
@@ -27,7 +26,7 @@ pub trait FRBackend: Send + Sync {
     async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet>;
 
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo>;
-    async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult>;
+    async fn delete_faces(&self, fr_id: &str, face_ids: Vec<String>) -> FRResult<DeleteFaceResult>;
     //async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult>;
     async fn get_enrollments_by_last_name(&self, name: &str)
         -> FRResult<Vec<EnrollmentRosterItem>>;

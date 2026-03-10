@@ -1,9 +1,8 @@
 use super::{
     pvtypes::{
         add_faces_request_from_processed, build_lookup_request, build_process_image_request,
-        delete_faces_request, delete_identity_request, get_faces_request, list_identities_request,
-        liveness_process_full_image_request, possible_matches_from_lookup, DEFAULT_BUCKETS_LIMIT,
-        DEFAULT_SCALING_FACTOR,
+        delete_faces_request, liveness_process_full_image_request, possible_matches_from_lookup,
+        DEFAULT_BUCKETS_LIMIT, DEFAULT_SCALING_FACTOR,
     },
     FRBackend, FRResult, MatchConfig, Template,
 };
@@ -16,9 +15,9 @@ use crate::{DeleteFaceResult, EnrollmentRosterItem, FRError, FRIdentity, Face, I
 use bytes::Bytes;
 use libpv::identity_grpc::{identity, PVIdentityGrpcApi};
 use libpv::proc_grpc::{processor, PVProcGrpcApi};
-use serde_json::{json, Value};
+use serde_json::json;
 use sqlx::PgPool;
-use tracing::{error, info, warn};
+use tracing::info;
 
 #[derive(Clone)]
 pub struct PVBackend {
@@ -33,39 +32,6 @@ impl PVBackend {
             proc_api: PVProcGrpcApi::new(proc_url),
             ident_api: PVIdentityGrpcApi::new(ident_url),
             db,
-        }
-    }
-
-    async fn log_delete_err(&self, action: &str, e: &FRError, details: Option<Value>) {
-        error!("Delete Enrollment error: {}", e.message);
-        let e_val = match serde_json::to_value(e) {
-            Ok(v) => v,
-            Err(err) => {
-                error!("failed to serialize delete error: {}", err);
-                return;
-            }
-        };
-
-        let details_val = match serde_json::to_value(details) {
-            Ok(v) => v,
-            Err(err) => {
-                error!("failed to serialize delete details: {}", err);
-                return;
-            }
-        };
-
-        let res = sqlx::query(
-            r" INSERT into paravision.enrollment_log (action,error,message,details) VALUES ($1,$2,$3,$4) ",
-        )
-        .bind(action)
-        .bind(e_val)
-        .bind(&e.message)
-        .bind(details_val)
-        .execute(&self.db)
-        .await;
-
-        if let Err(_lg_err) = res {
-            error!("#GREAT SCOTT! The database write failed! Abandon all hope. we should panic.");
         }
     }
 
@@ -171,12 +137,12 @@ impl PVBackend {
 
 impl FRBackend for PVBackend {
     //TODO: maybe kill this
-    async fn generate_template(&self, image: Bytes) -> FRResult<Vec<Template>> {
+    async fn generate_template(&self, _image: Bytes) -> FRResult<Vec<Template>> {
         Ok(vec![])
     }
 
     //TODO: maybe kill this
-    async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet> {
+    async fn create_identity(&self, _template: Template, ext_id: &str) -> FRResult<IDSet> {
         Ok(IDSet { fr_id: "abc_123".into(), ext_id: ext_id.into() })
     }
 
@@ -309,8 +275,8 @@ impl FRBackend for PVBackend {
         })
     }
 
-    async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
-        let delete_req = delete_faces_request(fr_id, face_id);
+    async fn delete_faces(&self, fr_id: &str, face_ids: Vec<String>) -> FRResult<DeleteFaceResult> {
+        let delete_req = delete_faces_request(fr_id, face_ids);
         let res = self.ident_api.delete_faces(delete_req).await?;
 
         Ok(DeleteFaceResult { rows_affected: res.rows_affected })

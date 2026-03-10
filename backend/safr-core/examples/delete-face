@@ -1,16 +1,38 @@
-#!/usr/bin/env bash
+
+
+#!/bin/bash
+
 set -euo pipefail
+
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common"
 
-FR_ID="${1:-}"
-FACE_ID="${2:-}"
-require_arg "$FR_ID" "fr_id"
-require_arg "$FACE_ID" "face_id"
+# 1. Ensure we have at least an fr_id and one face_id
+if [ "$#" -lt 2 ]; then
+    echo "Usage: $0 <fr_id> <face_id_1> [face_id_2] [face_id_3] ..."
+    exit 1
+fi
 
-PAYLOAD="$(printf '{"fr_id":"%s","face_id":"%s"}' "$FR_ID" "$FACE_ID")"
+# 2. Grab the first argument as the FR ID
+FR_ID=$1
 
-curl_json POST "/fr/v2/enrollment/delete-face" \
-  -H "Content-Type: application/json" \
-  -d "$PAYLOAD"
+# 3. 'shift' drops the first argument, so "$@" now only contains the face_ids
+shift
+
+# 4. Use printf to format the remaining arguments as '"id1","id2",'
+# Then strip the trailing comma and wrap it in brackets to make valid JSON
+FACE_IDS_JSON=$(printf '"%s",' "$@")
+FACE_IDS_JSON="[${FACE_IDS_JSON%,}]"
+
+
+
+# 5. Construct the final JSON string
+PAYLOAD="{\"fr_id\": \"$FR_ID\", \"face_ids\": $FACE_IDS_JSON}"
+
+echo "Sending Payload: $PAYLOAD"
+
+# 6. Fire it at your Axum endpoint!
+curl_json  POST "/fr/v2/enrollment/delete-face" \
+     -H "Content-Type: application/json" \
+     -d "$PAYLOAD"

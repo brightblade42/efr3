@@ -121,7 +121,7 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/enrollment/delete", post(enrollment_handlers::delete_enrollment))
         //TODO
         .route("/enrollment/add-face", post(enrollment_handlers::add_face))
-        .route("/enrollment/delete-face", post(enrollment_handlers::delete_face))
+        .route("/enrollment/delete-face", post(enrollment_handlers::delete_faces))
         //TODO: not sure about this.
         //.route("/get-identity", post(enrollment_handlers::get_face_info))
         //PROFILE interacts with REMOTE
@@ -140,7 +140,6 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/detect", post(recognition_handlers::detect_faces)) //detect, bbox.
         .route("/recognize", post(recognition_handlers::recognize))
         //a combo on recognition and notifying remote of building entrance / exit.
-        //DELETE
         //NOTE: this is a very dangerous function. maybe we block it.
         .route("/enrollment/reset", post(enrollment_handlers::reset_enrollments))
         //TODO: implement or discard

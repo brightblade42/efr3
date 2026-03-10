@@ -9,6 +9,6 @@ IMAGE="${2:-$DEFAULT_IMAGE}"
 require_arg "$FR_ID" "fr_id"
 require_image "$IMAGE"
 
-curl_json POST "/fr/v2/enrollment/add-face?fr_id=${FR_ID}" \
+curl_json POST "/fr/v2/enrollment/add-face" \
   -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg" \
   -F "fr_id=${FR_ID}"

@@ -1,10 +1,10 @@
 use sqlx::PgPool;
 
 use crate::repo::{
-    EnrollmentLogRecord, EnrollmentMetadataRecord, EnrollmentResetRecord, ImageRecord,
-    ProfileRecord, RegistrationErrorRecord, RepoError, RepoResult,
+    EnrollmentLogRecord, EnrollmentMetadataRecord, ImageRecord, ProfileRecord,
+    RegistrationErrorRecord, RepoError, RepoResult,
 };
-use crate::{FRError, FRIdentity, FRResult, PossibleMatch};
+use crate::PossibleMatch;
 use serde_json::Value;
 
 #[derive(Clone)]
@@ -54,7 +54,7 @@ impl SqlxFrRepository {
         let confidence = pm.score;
         let pm_val = serde_json::to_value(pm)?;
 
-        let res = sqlx::query(
+        sqlx::query(
             r"Insert into logs.matches (pmatch, extra, location, confidence) VALUES ($1, $2, $3, $4)",
         )
         .bind(pm_val)

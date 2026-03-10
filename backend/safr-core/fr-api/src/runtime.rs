@@ -208,12 +208,12 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
+    async fn delete_faces(&self, fr_id: &str, face_ids: Vec<String>) -> FRResult<DeleteFaceResult> {
         match self {
-            Self::Paravision(backend) => backend.delete_face(fr_id, face_id).await,
+            Self::Paravision(backend) => backend.delete_faces(fr_id, face_ids).await,
             #[cfg(test)]
             Self::Mock => {
-                let _ = (fr_id, face_id);
+                let _ = (fr_id, face_ids);
                 Ok(DeleteFaceResult { rows_affected: 1 })
             }
         }

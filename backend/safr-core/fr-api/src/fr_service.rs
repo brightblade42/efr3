@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use libfr::PossibleMatch;
 use libfr::{
     backend::{FRBackend, MatchConfig},
     remote::Remote,
@@ -9,10 +10,9 @@ use libfr::{
     DeleteFaceResult, EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult,
     EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face, IDPair, SearchBy,
 };
-use libfr::{PossibleMatch, RecognizeOpts};
 use libtpass::types::TPassProfile;
 use serde_json::{json, Value};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 //use crate::recognition_handlers::RecognizeOpts;
 use crate::runtime::{FREngine, RemoteRuntime};
@@ -315,8 +315,12 @@ impl FRService {
         self.fr_engine.add_face(fr_id, image).await
     }
 
-    pub async fn delete_face(&self, fr_id: &str, face_id: &str) -> FRResult<DeleteFaceResult> {
-        self.fr_engine.delete_face(fr_id, face_id).await
+    pub async fn delete_faces(
+        &self,
+        fr_id: &str,
+        face_ids: Vec<String>,
+    ) -> FRResult<DeleteFaceResult> {
+        self.fr_engine.delete_faces(fr_id, face_ids).await
     }
 
     pub async fn get_enrollments_by_last_name(

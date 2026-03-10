@@ -1,5 +1,5 @@
 use axum::{
-    extract::{multipart::Multipart, Query, State},
+    extract::{multipart::Multipart, State},
     Json,
 };
 use libfr::backend::MatchConfig;
@@ -77,20 +77,30 @@ pub async fn add_face(
     Ok(Json(res))
 }
 
-pub async fn delete_face(
+pub async fn delete_faces(
     State(app_state): State<AppState>,
     Json(req): Json<DeleteFaceRequest>,
-) -> WResult<Json<DeleteFaceApiResponse>> {
-    if req.fr_id.trim().is_empty() || req.face_id.trim().is_empty() {
-        return Err(Generic("fr_id and face_id are required to delete a face".to_string()));
+) -> WResult<Json<Value>> {
+    // if req.fr_id.trim().is_empty() || req.face_id.trim().is_empty() {
+    //     return Err(Generic("fr_id and face_id are required to delete a face".to_string()));
+    // }
+    if req.fr_id.trim().is_empty() || req.face_ids.is_empty() {
+        return Err(Generic("fr_id and at least one face_id are required".to_string()));
     }
 
-    let res = app_state.fr_service.delete_face(&req.fr_id, &req.face_id).await?;
-    Ok(Json(DeleteFaceApiResponse {
-        rows_affected: res.rows_affected,
-        fr_id: req.fr_id,
-        face_id: req.face_id,
-    }))
+    // 2. Check if any of the actual strings inside the array are just blank spaces
+    let has_blank_ids = req.face_ids.iter().any(|id| id.trim().is_empty());
+    if has_blank_ids {
+        return Err(Generic("One or more face_ids provided are empty strings".to_string()));
+    }
+
+    let res = app_state.fr_service.delete_faces(&req.fr_id, req.face_ids.clone()).await?;
+    Ok(Json(json!({
+        "rows_affected": res.rows_affected,
+        "fr_id": req.fr_id,
+        "face_ids": req.face_ids,
+    }
+    )))
 }
 
 pub async fn get_enrollment_errlog(State(app_state): State<AppState>) -> WResult<Json<Value>> {
@@ -221,25 +231,8 @@ pub(crate) enum SearchEnrollmentBy {
 }
 
 //TODO: deprecate
-#[derive(Deserialize, Debug, Clone)]
-pub(crate) struct AddFaceRequest {
-    pub fr_id: String,
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct DeleteFaceRequest {
     pub fr_id: String,
-    pub face_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub(crate) struct DeleteFaceApiResponse {
-    pub rows_affected: i32,
-    pub fr_id: String,
-    pub face_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub(crate) struct GetFaceInfoRequest {
-    pub fr_id: String,
+    pub face_ids: Vec<String>,
 }
