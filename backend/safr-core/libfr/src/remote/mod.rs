@@ -1,5 +1,7 @@
 mod tpass;
 
+use std::error::Error;
+
 use crate::{EnrollData, FRResult, Image, SearchBy};
 use libtpass::types::TPassProfile;
 use serde::{Deserialize, Serialize};

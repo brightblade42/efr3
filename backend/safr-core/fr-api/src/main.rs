@@ -168,12 +168,19 @@ fn tpass_routes() -> Router<AppState> {
 
 #[tokio::main]
 async fn main() {
+    // tracing_subscriber::fmt()
+    //     .with_env_filter( EnvFilter::try_from_default_env()
+    //             .unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn,tower_http=info")),
+    //     )
+    //     .pretty()
+    //     //.compact()
+    //     .init();
+
     tracing_subscriber::fmt()
         //        .with_max_level(Level::DEBUG)
         .with_env_filter(EnvFilter::from_default_env()) //do I even need this? I may if I want to reduce tracing output as an optimization in prod
         .init();
-
-    info!("starting web server for glorious victories!");
+    info!("starting the web server!");
 
     let config = Config::new();
     let db_conn = format!(
@@ -272,11 +279,10 @@ async fn main() {
     if let Err(e) = axum::serve(listener, app).await {
         error!("server error: {}", e);
     }
-    //}
 }
 
 async fn fallback1() -> (StatusCode, &'static str) {
-    (StatusCode::NOT_FOUND, "This is not cool bruh..")
+    (StatusCode::NOT_FOUND, "This is not cool bruh. Not found")
 }
 
 impl From<&Config> for MatchConfig {
@@ -644,12 +650,3 @@ mod tests {
         assert!(payload["details"].is_object());
     }
 }
-//we're not using this one currently
-/*
-async fn detect_image_embed(State(app_state): State<AppState>, multipart: Multipart) -> WResult<Json<Value>> {
-
-    let img_data = extract_image_data(multipart).await?;
-    let res  = app_state.fr_service.detect_image_embed(img_data.image.unwrap()).await?;
-    Ok(Json(res))
-}
- */

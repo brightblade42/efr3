@@ -128,28 +128,6 @@ pub(crate) fn delete_faces_request(
     identity::DeleteFacesRequest { identity_id: fr_id.to_string(), face_ids: face_ids }
 }
 
-// pub(crate) fn to_add_face_result(response: identity::AddFacesResponse) -> AddFaceResult {
-//     AddFaceResult { faces: response.faces.into_iter().map(to_enrollment_face_info).collect() }
-// }
-
-// pub(crate) fn to_get_face_info_result(response: identity::GetFacesResponse) -> GetFaceInfoResult {
-//     GetFaceInfoResult {
-//         faces: response.faces.into_iter().map(to_enrollment_face_info).collect(),
-//         next_page_token: response.next_page_token,
-//         total_size: response.total_size,
-//     }
-// }
-
-// pub(crate) fn to_enrollment_face_info(face: identity::Face) -> EnrollmentFaceInfo {
-//     EnrollmentFaceInfo {
-//         id: face.id,
-//         identity_id: face.identity_id,
-//         created_at: timestamp_to_rfc3339(face.created_at),
-//         model: face.model,
-//         quality: face.quality,
-//     }
-// }
-
 pub(crate) fn possible_matches_from_lookup(
     lookup: &identity::LookupIdentity,
 ) -> Vec<PossibleMatch> {

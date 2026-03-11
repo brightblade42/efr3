@@ -1,94 +1,14 @@
 pub mod backend;
+pub mod errors;
 pub mod remote;
 pub mod repo;
 use bytes::Bytes;
-use libpv::errors::PVApiError;
-use libtpass::errors::TPassError;
+
+use errors::FRError;
 use libtpass::types::TPassProfile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::error::Error as SqlxError;
-use thiserror::Error;
-
 pub type FRResult<T> = Result<T, FRError>;
-
-#[derive(Serialize, Deserialize, Debug, Error)]
-#[error("{message}")]
-pub struct FRError {
-    pub code: u16,
-    pub name: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
-}
-
-impl FRError {
-    pub fn new() -> Self {
-        Self {
-            code: 500,
-            name: "generic_error".to_string(),
-            message: "could not perform fr operation. this is a catch all.".to_string(),
-            details: None,
-        }
-    }
-    pub fn with_code(code: u16, name: &str, message: &str) -> Self {
-        Self { code, name: name.to_string(), message: message.to_string(), details: None }
-    }
-
-    pub fn with_details(code: u16, name: &str, message: &str, details: Value) -> Self {
-        Self { code, name: name.to_string(), message: message.to_string(), details: Some(details) }
-    }
-}
-
-impl Default for FRError {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl From<PVApiError> for FRError {
-    fn from(pv: PVApiError) -> Self {
-        //TODO: update PVApiError to provide name. we might not even
-        // need that error anymore
-        let name = "pv_api_error".to_string();
-        Self { code: pv.code, name, message: pv.message, details: None }
-    }
-}
-
-impl From<&PVApiError> for FRError {
-    fn from(pv: &PVApiError) -> Self {
-        let name = "pv_api_error".to_string();
-        Self { code: pv.code, name, message: pv.message.clone(), details: None }
-    }
-}
-
-impl From<TPassError> for FRError {
-    fn from(e: TPassError) -> Self {
-        let name = "tpass_error".to_string();
-        Self { code: 2000, name, message: e.to_string(), details: None }
-    }
-}
-impl From<SqlxError> for FRError {
-    fn from(se: SqlxError) -> Self {
-        Self {
-            code: 1000, //don't know
-            name: "sqlx_error".to_string(),
-            message: se.to_string(),
-            details: None,
-        }
-    }
-}
-
-impl From<serde_json::Error> for FRError {
-    fn from(se: serde_json::Error) -> Self {
-        Self {
-            code: 3000,
-            name: "serde_json_error".to_string(),
-            message: se.to_string(),
-            details: None,
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RecognizeOpts {

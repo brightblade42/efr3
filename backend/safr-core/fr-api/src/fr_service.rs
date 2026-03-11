@@ -2,17 +2,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use libfr::PossibleMatch;
 use libfr::{
     backend::{FRBackend, MatchConfig},
+    errors::{FRError, FaceError},
     remote::Remote,
     repo::{EnrollmentMetadataRecord, ProfileRecord, SqlxFrRepository},
     DeleteFaceResult, EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult,
-    EnrollmentRosterItem, FRError, FRIdentity, FRResult, Face, IDPair, SearchBy,
+    EnrollmentRosterItem, FRIdentity, FRResult, Face, IDPair, SearchBy,
 };
+use libfr::{FaceResult, PossibleMatch};
 use libtpass::types::TPassProfile;
 use serde_json::{json, Value};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 //use crate::recognition_handlers::RecognizeOpts;
 use crate::runtime::{FREngine, RemoteRuntime};
@@ -69,7 +70,15 @@ impl FRService {
     //return a face that can be used for enrollment
     async fn ensure_enrollable(&self, image: Bytes, config: MatchConfig) -> FRResult<Face> {
         //check threshold as well.
-        self.duplicate_check(image.clone(), config).await?; //its OK to clone bytes::Bytes, cheap not deep
+        self.duplicate_check(image.clone(), config).await.inspect_err(|e| match e {
+            FaceError::Duplicate { ext_id, fr_id, score } => {
+                warn!("🎯 DUPLICATE: ext_id:{} | fr_id: {}  score: {:.4}", ext_id, fr_id, score);
+            }
+            FaceError::PoorQuality { quality } => {
+                warn!("🟡 QUALITY: {:.2} too low", quality);
+            }
+            _ => error!("PV Engine Error: {:?}", e),
+        })?;
 
         //only ever enroll 1 face.
         let mut face = self.get_closest_face(image, false).await?;
@@ -89,7 +98,7 @@ impl FRService {
                 json!(face),
             );
 
-            self.log_enrollment_error("create_enrollment", &fr_err).await?;
+            //self.log_enrollment_error("create_enrollment", &fr_err).await?;
             return Err(fr_err);
         }
         Ok(face)
@@ -117,17 +126,12 @@ impl FRService {
         //the whole thing passess or fails.
         self.persist_profile(&profile).await?;
 
+        info!("mc fly!");
         //should be called create_identity?
         let response = match self.fr_engine.create_enrollment(&face, config, &ext_id).await {
             Ok(response) => response,
             Err(err) => {
-                warn!(
-                    "create enrollment \n{}",
-                    serde_json::to_string_pretty(err.details.as_ref().unwrap_or_default())
-                        .unwrap_or_default()
-                );
-                //TODO: validate proper logging
-                self.log_enrollment_error("create_enrollment", &err).await?;
+                _ = self.log_enrollment_error2("create_enrollment", &err, &face, &ext_id); //.await?;
                 return Err(err);
             }
         };
@@ -213,8 +217,7 @@ impl FRService {
         self.fr_engine.detect_faces(image, liveness_check).await
     }
 
-    pub async fn duplicate_check(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
-        //no results means no duplicate, could be a clean db
+    pub async fn duplicate_check(&self, image: Bytes, config: MatchConfig) -> FaceResult<()> {
         let fr_ident = self.fr_engine.recognize(image, config).await?;
 
         if fr_ident.is_empty() {
@@ -231,19 +234,20 @@ impl FRService {
             .into_iter()
             .next()
             .ok_or_else(|| {
-                FRError::with_code(
-                    1081,
-                    "duplicate_check_error",
-                    "duplicate_check: image processing returned no possible matches",
+                FaceError::Engine(
+                    "duplicate_check: image processing returned no possible matches".to_string(),
                 )
             })?;
 
         if pm.score >= config.min_dupe_match {
             //log dupe error
-            let fr_err =
-                FRError::with_details(1081, "duplicate_error", "duplicate_found", json!(pm));
-            self.log_enrollment_error("create_enrollment", &fr_err).await?;
-            return Err(fr_err);
+            //let fr_err =
+            //    FRError::with_details(1081, "duplicate_error", "duplicate_found", json!(pm));
+            return Err(FaceError::Duplicate {
+                ext_id: pm.ext_id,
+                fr_id: pm.fr_id,
+                score: pm.score,
+            });
         }
 
         Ok(())
@@ -278,7 +282,7 @@ impl FRService {
         //TODO: skip if we want a local only call.
 
         if config.include_details {
-            info!("include detail activated");
+            // info!("include detail activated");
             let remote_matches =
                 self.remote.search_by_ids(SearchBy::ExtIDS(ext_ids), false).await?;
 
@@ -443,11 +447,34 @@ impl FRService {
     //     Ok(())
     // }
 
+    fn log_enrollment_error2(
+        &self,
+        code: &str,
+        err: &FRError,
+        face: &Face,
+        ext_id: &str,
+    ) -> FRResult<String> {
+        info!("what the hell");
+        warn!(
+            "{}: {} ext_id: {} quality: {}",
+            code,
+            err.message,
+            &ext_id,
+            &face.quality.unwrap_or(0.0),
+        );
+        //info!("log to enrollment table");
+        //warn!("{}: {} ", code, err.message);
+        //warn!(err.message);
+        //let x = serde_json::to_string_pretty(&err.details).unwrap();
+        //warn!(x);
+        Ok("logged enrollment error".to_string())
+    }
     async fn log_enrollment_error(&self, code: &str, err: &FRError) -> FRResult<String> {
-        warn!(code);
-        warn!(err.message);
-        let x = serde_json::to_string_pretty(&err.details).unwrap();
-        warn!(x);
+        //info!("log to enrollment table");
+        //warn!("{}: {} ", code, err.message);
+        //warn!(err.message);
+        //let x = serde_json::to_string_pretty(&err.details).unwrap();
+        //warn!(x);
         Ok("logged enrollment error".to_string())
     }
 

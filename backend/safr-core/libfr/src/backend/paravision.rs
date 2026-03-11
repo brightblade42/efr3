@@ -260,12 +260,11 @@ impl FRBackend for PVBackend {
         let add_req = add_faces_request_from_processed(processed, fr_id.to_string(), 0.0);
         let face_resp = self.ident_api.add_faces(add_req).await?;
 
-        let face = face_resp.faces.into_iter().next().ok_or_else(|| FRError {
-            code: 1000,
-            name: "add_face_error".to_string(),
-            message: "Face was not added to identity".to_string(),
-            details: None,
-        })?;
+        let face = face_resp
+            .faces
+            .into_iter()
+            .next()
+            .ok_or_else(|| FRError::AddFace { fr_id: fr_id.to_string() })?;
 
         Ok(EnrolledFaceInfo {
             face_id: face.id,

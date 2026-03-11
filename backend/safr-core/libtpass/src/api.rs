@@ -22,7 +22,7 @@ use tracing::{debug, info, warn};
 
 const PARALLEL_REQUESTS: usize = 16;
 
-type TResult<T> = Result<T, TPassError>;
+pub type TResult<T> = Result<T, TPassError>;
 //type FRResult<T> = Result<T, FRError>;
 //type JoinFRResult<T> = Result<FRResult<T>, JoinError>;
 
@@ -115,10 +115,9 @@ impl TPassClient {
         let status = res.status();
         //TODO: find out from Sherwin if this is the success path, i forget.
         if !status.is_success() {
-            warn!("TPass endpoint {} returned non-success status {}", endpoint, status);
-            return Err(TPassError::GenericError(Box::new(std::io::Error::other(format!(
+            return Err(TPassError::Generic(format!(
                 "empty response body from {endpoint} ({status})"
-            )))));
+            )));
         }
         if status == StatusCode::NO_CONTENT {
             return Ok(None);
@@ -137,9 +136,9 @@ impl TPassClient {
 
         let txt = res.text().await?;
         if txt.trim().is_empty() {
-            return Err(TPassError::GenericError(Box::new(std::io::Error::other(format!(
+            return Err(TPassError::Generic(format!(
                 "empty response body from {endpoint} ({status})"
-            )))));
+            )));
         }
 
         let val: Value = serde_json::from_str(txt.as_str())?;
@@ -615,11 +614,9 @@ impl TPassClient {
         }
 
         self.verify_token().await?;
-        self.cached_token().await.ok_or_else(|| {
-            TPassError::GenericError(Box::new(std::io::Error::other(
-                "missing API token after verification",
-            )))
-        })
+        self.cached_token()
+            .await
+            .ok_or_else(|| TPassError::Generic("missing API token after verification".to_string()))
     }
 
     ///download a tpass image by their generated url

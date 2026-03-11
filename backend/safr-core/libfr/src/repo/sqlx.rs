@@ -401,18 +401,6 @@ impl SqlxFrRepository {
         .await?;
 
         Ok(res.rows_affected())
-        // Ok(EnrollmentResetRecord {
-        //     profiles_deleted: res.rows_affected() as i64,
-        //     images_deleted: 0,
-        //     registration_errors_deleted: 0,
-        //     enrollment_logs_deleted: 0,
-        // })
-        // Ok(EnrollmentResetRecord {
-        //     profiles_deleted: profile_res.rows_affected() as i64,
-        //     images_deleted: image_res.rows_affected() as i64,
-        //     registration_errors_deleted: reg_res.rows_affected() as i64,
-        //     enrollment_logs_deleted: log_res.rows_affected() as i64,
-        // })
     }
 }
 

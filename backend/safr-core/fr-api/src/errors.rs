@@ -9,7 +9,7 @@ use serde_json::Value;
 use serde::{Deserialize, Serialize};
 //----- A better error strategy
 //top level, our domain specific errors will be transformed to AppErrors for retunning to users
-use libfr::FRError;
+use libfr::errors::FRError;
 use libtpass::errors::TPassError;
 
 #[derive(Debug)]
