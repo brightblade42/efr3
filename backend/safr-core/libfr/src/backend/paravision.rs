@@ -157,13 +157,12 @@ impl FRBackend for PVBackend {
 
         let ident_res = self.ident_api.create_identities(id_req).await?;
 
-        let fr_id = ident_res.identities.into_iter().next().ok_or_else(|| {
-            FRError::with_code(
-                1021,
-                "create_identity_error",
-                "A new identity was not returned from paravision",
-            )
-        })?;
+        //NOTE: if create identities returns without error, this seems unlikely to not have an identity
+        let fr_id = ident_res
+            .identities
+            .into_iter()
+            .next()
+            .ok_or_else(|| FRError::CreateIdentity { ext_id: ext_id.to_string() })?;
 
         Ok(IDPair { fr_id: fr_id.id, ext_id: ext_id.to_string() })
     }

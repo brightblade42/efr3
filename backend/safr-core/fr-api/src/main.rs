@@ -1,3 +1,5 @@
+#[macro_use]
+pub mod macros;
 mod attendance_handlers;
 mod enrollment_handlers;
 mod errors;

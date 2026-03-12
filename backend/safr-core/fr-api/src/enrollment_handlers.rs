@@ -7,7 +7,7 @@ use libfr::repo::EnrollmentMetadataRecord;
 use libfr::{EnrolledFaceInfo, EnrollmentDeleteResult, EnrollmentRosterItem, IDPair};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{errors::AppError::Generic, extractors, AppState, WResult};
 
@@ -49,8 +49,12 @@ pub async fn delete_enrollment(
 ) -> WResult<Json<EnrollmentDeleteResult>> {
     //this is a little weird
     let fr_id = resolve_fr_id_for_delete(&app_state, payload).await?;
-    let res = app_state.fr_service.delete_enrollment(&fr_id).await?;
-    info!("{:?}", res);
+    let res = app_state
+        .fr_service
+        .delete_enrollment(&fr_id)
+        .await
+        .inspect_err(|e| error!("{}", e))?;
+    info!("deleted enrollment:  fr_id: {}", &res.fr_id);
     Ok(Json(res))
 }
 

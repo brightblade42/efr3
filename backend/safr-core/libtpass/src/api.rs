@@ -133,18 +133,17 @@ impl TPassClient {
         if status == StatusCode::NO_CONTENT {
             return Ok(json!([]));
         }
+        if !status.is_success() {
+            warn!("TPass endpoint {} returned fail status {}", endpoint, status);
+            return Err(TPassError::Generic(format!("failed request for: {endpoint} ({status})")));
+        }
 
         let txt = res.text().await?;
         if txt.trim().is_empty() {
-            return Err(TPassError::Generic(format!(
-                "empty response body from {endpoint} ({status})"
-            )));
+            return Err(TPassError::Generic(format!("empty response from {endpoint} ({status})")));
         }
 
         let val: Value = serde_json::from_str(txt.as_str())?;
-        if !status.is_success() {
-            warn!("TPass endpoint {} returned non-success status {}", endpoint, status);
-        }
 
         Ok(val)
     }

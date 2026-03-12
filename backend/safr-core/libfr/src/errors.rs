@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 use sqlx::error::Error as SqlxError;
 use thiserror::Error;
 use tracing::error;
+
+use crate::repo::RepoError;
 #[derive(Serialize, Deserialize, Debug, Error)]
 #[error("{message}")]
 pub struct FRError2 {
@@ -20,19 +22,32 @@ pub enum FRError {
     #[error("🎯 Duplicate found: {ext_id} | {fr_id} (score: {score:.4})")]
     Duplicate { ext_id: String, fr_id: String, score: f32 },
 
-    #[error("🟡 Quality too low: {quality:.2}")]
-    PoorQuality { quality: f32 },
+    #[error("🟡 Quality too low: min_qualutyL {min_quality:.2} quality: {quality:.2}")]
+    PoorQuality { quality: f32, min_quality: f32 },
 
-    #[error("😬 Add Face failed for identity: {fr_id})")]
+    #[error("😬 Add Face failed for identity: fri_id: {fr_id})")]
     AddFace { fr_id: String },
 
-    #[error("😬 Add Face failed for identity: {fr_id})")]
+    #[error("😬 No faces were detected in image")]
+    FaceNotFound,
+    #[error("😬 Add Face failed for identity: fr_id: {fr_id})")]
     MissingImage { fr_id: String },
 
+    #[error("🔴 Create identity failed: ext_id: {ext_id})")]
+    CreateIdentity { ext_id: String },
+
+    #[error("🔴 Failed to save profile: for ext_id: {ext_id} msg: {message})")]
+    SaveProfile { ext_id: String, message: String },
+    #[error("🔴 Create enrollment error: ext_id: {ext_id} msg: {message})")]
+    CreateEnrollment { ext_id: String, message: String },
+    #[error("🔴 Delete enrollment error: fr_id: {fr_id} msg: {message})")]
+    DeleteEnrollment { fr_id: String, message: String },
     #[error(" Remote: {0})")]
     Remote(String),
     #[error("🔴 Paravision error: {0}")]
     Engine(String),
+    #[error("🔴 Repo error: {0}")]
+    Repo(String),
     #[error("🟣 generic error: {code}  | {message}")]
     Generic {
         code: String,
@@ -77,27 +92,24 @@ pub enum FRError {
 //     #[error("Paravision error: {0}")]
 //     Engine(String),
 // }
-
-// impl From<FaceError> for FRError {
-//     fn from(err: FaceError) -> Self {
-//         match err {
-//             FaceError::Duplicate { ref ext_id, ref fr_id, score } => Self::with_details(
-//                 409,
-//                 "duplicate_found",
-//                 &err.to_string(),
-//                 json!({ "ext_id": ext_id, "fr_id": fr_id, "score": score }),
-//             ),
-//             FaceError::PoorQuality { quality } => Self::with_details(
-//                 400,
-//                 "poor_quality",
-//                 &err.to_string(),
-//                 json!({ "quality": quality }),
-//             ),
-//             FaceError::Engine(msg) => Self::with_code(500, "engine_failure", &msg),
-//         }
-//     }
-// }
-
+impl From<RepoError> for FRError {
+    fn from(e: RepoError) -> Self {
+        match e {
+            RepoError::Json(e) => {
+                error!("‼️ Repo error: {}", e);
+                FRError::Repo(e.to_string())
+            }
+            RepoError::Message(msg) => {
+                error!("‼️ Repo error: {}", msg);
+                FRError::Repo(msg)
+            }
+            RepoError::Sqlx(e) => {
+                error!("‼️ Repo error: {}", e);
+                FRError::Repo(e.to_string())
+            }
+        }
+    }
+}
 impl From<PVApiError> for FRError {
     fn from(pv: PVApiError) -> Self {
         //TODO: update PVApiError to provide name. we might not even
@@ -118,12 +130,6 @@ impl From<&PVApiError> for FRError {
 
 impl From<TPassError> for FRError {
     fn from(e: TPassError) -> Self {
-        // match e {
-        //     TPassError::Generic(msg) => Self::TPass(msg),
-        //     TPassError::Http(e) => Self::TPass(format!("Http: {}", e)),
-        //     TPassError::JsonError(e) => Self::TPass(format!("Json: {}", e)),
-        // }
-
         match e {
             TPassError::Generic(msg) => {
                 error!(target: "remote_integration", "🆔 {}", msg);

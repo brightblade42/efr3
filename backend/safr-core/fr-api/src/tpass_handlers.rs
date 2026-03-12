@@ -4,7 +4,10 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use crate::{errors::AppError, errors::StandardError, AppState, WResult};
-use libtpass::types::{FRAlert, SearchRequest};
+use libtpass::{
+    errors::TPassError,
+    types::{FRAlert, SearchRequest},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct SearchTpassRequest {
@@ -36,25 +39,19 @@ pub async fn search_tpass(
             }
             info!("Search Size: {}", total);
 
-            if verbose {
-                let payload = serde_json::to_value(tpr).map_err(|e| {
-                    tpass_passthrough_error("couldn't serialize verbose search response", e)
-                })?;
-                Ok(Json(payload))
-            } else {
-                let payload = serde_json::to_value(tpr.items).map_err(|e| {
-                    tpass_passthrough_error("couldn't serialize search response", e)
-                })?;
-                Ok(Json(payload))
-            }
+            Ok(Json(
+                if verbose { serde_json::to_value(&tpr) } else { serde_json::to_value(&tpr.items) }
+                    .map_err(|e| {
+                        TPassError::Generic(format!("couldn't serialize search response: {}", e))
+                    })?,
+            ))
         }
         Err(e) => {
             warn!("search_tpass request failed: {}", e);
-
             if verbose {
-                Err(tpass_passthrough_error("search_tpass request failed", e))
+                Err(AppError::Generic(format!("search_tpass request failed: {}", e)))
             } else {
-                Ok(Json(json!([{}])))
+                Ok(Json(json!([])))
             }
         }
     }
@@ -64,51 +61,26 @@ pub async fn send_fr_alert(
     State(app_state): State<AppState>,
     Json(req): Json<FRAlert>,
 ) -> WResult<Json<Value>> {
-    let res = app_state
-        .tpass_client
-        .send_fr_alert(req)
-        .await
-        .map_err(|e| tpass_passthrough_error("couldn't send fr alert", e))?;
-
-    info!("fr alert returned a success");
-    Ok(Json(res))
+    Ok(Json(
+        app_state
+            .tpass_client
+            .send_fr_alert(req)
+            .await
+            .inspect(|_| info!("fr alert returned a success"))?,
+    ))
 }
 
 ///TPass has a number of companies that we need to be aware of .
 pub async fn get_tpass_companies(State(app_state): State<AppState>) -> WResult<Json<Value>> {
-    info!("getting tpass companies");
-    let res = app_state
-        .tpass_client
-        .get_companies()
-        .await
-        .map_err(|e| tpass_passthrough_error("couldn't get companies list", e))?;
-    Ok(Json(res))
+    Ok(Json(app_state.tpass_client.get_companies().await?))
 }
 
 ///TPass has a number of client types that we need to be aware of
 pub async fn get_tpass_client_types(State(app_state): State<AppState>) -> WResult<Json<Value>> {
-    let res = app_state
-        .tpass_client
-        .client_types()
-        .await
-        .map_err(|e| tpass_passthrough_error("couldn't get tpass client types list", e))?;
-    Ok(Json(res))
+    Ok(Json(app_state.tpass_client.client_types().await?))
 }
 
 ///TPass has a number of status types that we need to be aware of.
 pub async fn get_tpass_status_types(State(app_state): State<AppState>) -> WResult<Json<Value>> {
-    let res = app_state
-        .tpass_client
-        .status_types()
-        .await
-        .map_err(|e| tpass_passthrough_error("couldn't get tpass status types list", e))?;
-    Ok(Json(res))
-}
-
-fn tpass_passthrough_error(message: &str, source: impl std::fmt::Display) -> AppError {
-    AppError::Standard(StandardError {
-        code: 9000,
-        message: message.to_string(),
-        details: Some(json!({ "source": source.to_string() })),
-    })
+    Ok(Json(app_state.tpass_client.status_types().await?))
 }

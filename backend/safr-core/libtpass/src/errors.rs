@@ -8,7 +8,7 @@ pub enum TPassError {
     #[error(transparent)]
     Http(#[from] reqwest::Error),
     #[error(transparent)]
-    JsonError(#[from] serde_json::Error),
+    Json(#[from] serde_json::Error),
     #[error("Missing imgUrl for: {last_name} {first_name} {ext_id}")]
     MissingImageURL { last_name: String, first_name: String, ext_id: u64 },
     #[error("Missing image for: {last_name} {first_name} {ext_id}")]
