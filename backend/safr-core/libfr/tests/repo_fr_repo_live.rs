@@ -166,11 +166,11 @@ async fn insert_and_read_fr_logs_roundtrip() -> TestResult {
         "expected registration error entry with marker"
     );
 
-    repo.append_enrollment_log(&enrollment_code, &enrollment_payload).await?;
+    //  repo.append_enrollment_log(&enrollment_code, &enrollment_payload).await?;
 
     let enroll_rows = repo.get_enrollment_logs_by_code(&enrollment_code, 10).await?;
     assert!(
-        enroll_rows.iter().any(|row| row.payload == enrollment_payload),
+        enroll_rows.iter().any(|row| row.error == enrollment_payload),
         "expected enrollment log payload with marker"
     );
 

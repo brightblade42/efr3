@@ -14,7 +14,8 @@ use libfr::errors::FRError;
 
 #[derive(Debug)]
 pub enum AppError {
-    Generic(String), //for very simple messages or an error we're not sure how to format yet.
+    InvalidInput(String), //for very simple messages or an error we're not sure how to format yet.
+    Generic(String),      //for very simple messages or an error we're not sure how to format yet.
     Standard(StandardError), //standard json error message. the http call was good but there was an api failure.
 }
 
@@ -167,6 +168,11 @@ impl IntoResponse for AppError {
             AppError::Generic(msg) => {
                 let std_err =
                     StandardError { code: "GENERIC_ERR".into(), message: msg, details: None };
+                (StatusCode::OK, Json(std_err))
+            }
+            AppError::InvalidInput(msg) => {
+                let std_err =
+                    StandardError { code: "INVALID_INPUT".into(), message: msg, details: None };
                 (StatusCode::OK, Json(std_err))
             }
         };

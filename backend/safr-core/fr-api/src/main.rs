@@ -75,13 +75,14 @@ impl Config {
 
     fn new() -> Self {
         //mostly precautionary, env vars are provided by docker-compose files
-        let dev_url = "100.79.241.8";
+        let dev_url = "100.79.241.8"; //tailscale addr.
         let min_match = env::var("MIN_MATCH").unwrap_or("0.95".to_string());
         let min_quality = env::var("MIN_QUALITY").unwrap_or("0.80".to_string());
         let min_acceptability =
-            env::var("MIN_ACCEPTABILITY").unwrap_or_else(|_| min_quality.clone());
+            env::var("MIN_ACCEPTABILITY").unwrap_or_else(|_| "0.70".to_string());
         let min_dupe_match = env::var("MIN_DUPE_MATCH").unwrap_or("0.98".to_string());
-        let use_tls = env::var("USE_TLS").unwrap_or("false".to_string());
+        let use_tls = env::var("USE_TLS").unwrap_or("false".to_string()); //reverse proxy instead
+                                                                          //TODO: rename
         let port = env::var("FRAPI_PORT").unwrap_or("3000".to_string());
 
         Self {
@@ -89,7 +90,7 @@ impl Config {
             pv_ident_url: env::var("PV_IDENT_URL").unwrap_or(format!("http://{}:5656", dev_url)),
             pv_proc_url: env::var("PV_PROC_URL").unwrap_or(format!("http://{}:50051", dev_url)),
 
-            //TODO: we don't use the term SAFR anymore, it's EYEFR
+            //TODO: we don't use the term SAFR anymore, it's EYEFR, also remove vals
             db_addr: env::var("SAFR_DB_ADDR").unwrap_or("localhost".to_string()),
             db_port: env::var("SAFR_DB_PORT").unwrap_or("5433".to_string()),
             db_user: env::var("SAFR_DB_USER").unwrap_or("admin".to_string()),
@@ -121,16 +122,13 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/enrollment/create", post(enrollment_handlers::create_enrollment))
         .route("/enrollment/search", post(enrollment_handlers::search_enrollment))
         .route("/enrollment/delete", post(enrollment_handlers::delete_enrollment))
-        //TODO
         .route("/enrollment/add-face", post(enrollment_handlers::add_face))
         .route("/enrollment/delete-faces", post(enrollment_handlers::delete_faces))
-        //TODO: not sure about this.
-        //.route("/get-identity", post(enrollment_handlers::get_face_info))
-        //PROFILE interacts with REMOTE
+        //TODO: test profile (camera based) PROFILE interacts with REMOTE
         .route("/create-profile", post(profile_handlers::create_profile))
         .route("/edit-profile", post(profile_handlers::edit_profile))
+        //TODO: test send alert with cam app
         .route("/send-alert", post(tpass_handlers::send_fr_alert))
-        //TODOD: this name needs to be better.
         .route("/mark-attendance", post(attendance_handlers::mark_attendance))
         //NOTE: deprecated in favor of liveness-check, clearer name
         //TODO: delete validate-image after liveness demo is complete
@@ -144,7 +142,7 @@ fn api_v2_routes() -> Router<AppState> {
         //a combo on recognition and notifying remote of building entrance / exit.
         //NOTE: this is a very dangerous function. maybe we block it.
         .route("/enrollment/reset", post(enrollment_handlers::reset_enrollments))
-        //TODO: implement or discard
+        //TODO: will need a paging strategy
         .route("/enrollment/errlog", post(enrollment_handlers::get_enrollment_errlog))
         .route("/enrollment/metadata", get(enrollment_handlers::get_enrollment_metadata))
         //gets all the enrollments 100 max atm
@@ -238,14 +236,14 @@ async fn main() {
         }
     };
 
-    info!(
+    info!(target: "startup",
         "startup env FR_BACKEND={} FR_REMOTE={}",
         fr_backend_env.as_deref().unwrap_or("<unset>"),
         fr_remote_env.as_deref().unwrap_or("<unset>"),
     );
 
-    info!("BACKEND: {}", fr_engine.name());
-    info!("REMOTE: {}", remote_name);
+    info!(target: "startup","BACKEND: {}", fr_engine.name());
+    info!(target: "startup", "REMOTE: {}", remote_name);
 
     let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote, fr_repo.clone()));
 
@@ -268,7 +266,7 @@ async fn main() {
             .with_state(app_state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
-    info!("listening on {}", addr);
+    info!(target: "startup", "listening on {}", addr);
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,

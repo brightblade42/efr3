@@ -112,7 +112,6 @@ pub async fn extract_add_face_form_data(mut multipart: Multipart) -> WResult<Add
 
             "fr_id" => {
                 let val = field.text().await.map_err(|x| Generic(x.to_string()))?;
-                //let p_res = serde_json::from_str(jval.as_str());
                 face_req.fr_id = val;
             }
             _ => {}
@@ -120,7 +119,7 @@ pub async fn extract_add_face_form_data(mut multipart: Multipart) -> WResult<Add
     }
 
     if face_req.image.is_none() {
-        return Err(Generic("An image is required but was not provided".to_string()));
+        return Err(Generic("Image not sent!".to_string()));
     }
 
     Ok(face_req)
@@ -157,9 +156,7 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
     }
 
     match (&enroll_data.image, &enroll_data.details) {
-        (Some(_), None) => {
-            Err(Generic("You need to provide details to know who this person is!".to_string()))
-        }
+        (Some(_), None) => Err(Generic("Missing enrollment details".to_string())),
         (None, None) => {
             Err(Generic("Nothing was provided! What would we be enrolling?".to_string()))
         }

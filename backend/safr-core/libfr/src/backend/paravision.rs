@@ -11,7 +11,7 @@ use crate::{
     repo::{EnrollmentMetadataRecord, ProfileRecord},
     EnrolledFaceInfo,
 };
-use crate::{DeleteFaceResult, EnrollmentRosterItem, FRError, FRIdentity, Face, IDPair};
+use crate::{DeleteFaceResult, FRError, FRIdentity, Face, IDPair};
 use bytes::Bytes;
 use libpv::identity_grpc::{identity, PVIdentityGrpcApi};
 use libpv::proc_grpc::{processor, PVProcGrpcApi};
@@ -34,45 +34,6 @@ impl PVBackend {
             db,
         }
     }
-
-    // async fn log_identification_db(
-    //     &self,
-    //     fr_identity: &FRIdentity,
-    //     extra: Option<&Value>,
-    //     location: &str,
-    // ) -> FRResult<()> {
-    //     let pm = fr_identity.possible_matches.first().ok_or_else(|| {
-    //         FRError::with_code(
-    //             2020,
-    //             "log_failed_error",
-    //             "could not log positive identification. identity has no possible matches",
-    //         )
-    //     })?;
-
-    //     let confidence = pm.score;
-    //     let pm_val = serde_json::to_value(pm)?;
-
-    //     let res = sqlx::query(
-    //         r"Insert into logs.matches (pmatch, extra, location, confidence) VALUES ($1, $2, $3, $4)",
-    //     )
-    //     .bind(pm_val)
-    //     .bind(extra)
-    //     .bind(location)
-    //     .bind(confidence)
-    //     .execute(&self.db)
-    //     .await;
-
-    //     if let Err(err) = res {
-    //         error!("#GREAT SCOTT! The database write failed for log_identification! {:?}", err);
-    //         return Err(FRError::with_code(
-    //             2021,
-    //             "log_failed_error",
-    //             "#GREAT SCOTT! The database write failed for log_identification!",
-    //         ));
-    //     }
-
-    //     Ok(())
-    // }
 
     fn to_fr_identities(
         &self,
@@ -98,19 +59,6 @@ impl PVBackend {
                     .is_some_and(|possible_match| possible_match.score >= min_match)
             })
             .collect()
-    }
-
-    fn profile_to_enrollment_item(profile: ProfileRecord) -> EnrollmentRosterItem {
-        let details = profile.raw_data.unwrap_or_else(|| {
-            json!({
-                "first_name": profile.first_name,
-                "last_name": profile.last_name,
-                "middle_name": profile.middle_name,
-                "img_url": profile.img_url,
-            })
-        });
-
-        EnrollmentRosterItem { fr_id: profile.fr_id, ext_id: profile.ext_id, details }
     }
 
     fn build_ident_request(
@@ -192,20 +140,6 @@ impl FRBackend for PVBackend {
     }
 
     //TODO: needs work. need a paging strategy
-    async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
-        let rows = sqlx::query_as::<_, ProfileRecord>(
-            r#"
-            select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
-            from eyefr.profiles
-            order by last_name asc nulls last, first_name asc nulls last, ext_id asc
-            limit 1000
-            "#,
-        )
-        .fetch_all(&self.db)
-        .await?;
-
-        Ok(rows.into_iter().map(Self::profile_to_enrollment_item).collect())
-    }
 
     async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         let process_req = if liveness_check {
@@ -278,26 +212,5 @@ impl FRBackend for PVBackend {
         let res = self.ident_api.delete_faces(delete_req).await?;
 
         Ok(DeleteFaceResult { rows_affected: res.rows_affected })
-    }
-
-    async fn get_enrollments_by_last_name(
-        &self,
-        name: &str,
-    ) -> FRResult<Vec<EnrollmentRosterItem>> {
-        let like_pattern = format!("{}%", name.trim());
-        let rows = sqlx::query_as::<_, ProfileRecord>(
-            r#"
-            select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
-            from eyefr.profiles
-            where last_name ilike $1
-            order by last_name asc, first_name asc, ext_id asc
-            limit 100
-            "#,
-        )
-        .bind(like_pattern)
-        .fetch_all(&self.db)
-        .await?;
-
-        Ok(rows.into_iter().map(Self::profile_to_enrollment_item).collect())
     }
 }

@@ -9,11 +9,11 @@ use libfr::{
     remote::Remote,
     repo::{EnrollmentMetadataRecord, ProfileRecord, SqlxFrRepository},
     DeleteFaceResult, EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult,
-    EnrollmentRosterItem, FRIdentity, FRResult, Face, IDPair, SearchBy,
+    FRIdentity, FRResult, Face, IDPair, SearchBy,
 };
 use libtpass::types::TPassProfile;
 use serde_json::{json, Value};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 //use crate::recognition_handlers::RecognizeOpts;
 use crate::runtime::{FREngine, RemoteRuntime};
@@ -64,17 +64,12 @@ impl FRService {
     //return a face that can be used for enrollment
     async fn ensure_enrollable(&self, image: Bytes, config: MatchConfig) -> FRResult<Face> {
         //check threshold as well.
-        self.duplicate_check(image.clone(), config)
-            .await
-            .inspect_err(|e| warn!("{}", e))?;
-
-        //only ever enroll 1 face.
+        self.duplicate_check(image.clone(), config).await?;
         let mut face = self.get_closest_face(image, false).await?;
         let quality = face.quality.unwrap_or(0.0);
         let acceptability = face.acceptability.unwrap_or(0.0);
 
         //we don't want these logged. waste
-        //face.template = None;
         face.bbox = None;
         face.liveness = None;
 
@@ -94,24 +89,29 @@ impl FRService {
             .ok_or_else(|| FRError::FaceNotFound)?)
     }
 
+    //makes a face recognizable by the system
     pub async fn create_enrollment(
         &self,
         enroll_data: &EnrollData,
         config: MatchConfig,
     ) -> FRResult<IDPair> {
         let (details, ext_id, image) = Self::extract_and_validate_data(enroll_data)?;
-        //quality and dupe check
-        let face = self.ensure_enrollable(image, config).await?; //only care about early error return otherwise we know we're good to go
-        let profile = Self::build_profile_record(&ext_id, None, &details);
+        let face = self.ensure_enrollable(image, config).await; //only care about early error return otherwise we know we're good to go
+
+        if let Err(ref e) = face {
+            self.log_enrollment_error("create_enrollment", details, &e).await;
+        }
+        let face = face?;
+
+        let profile = Self::build_profile_record(&ext_id, None, details);
         //the whole thing passess or fails.
         self.persist_profile(&profile).await?;
 
-        info!("mc fly!");
-        //should be called create_identity?
+        //NOTE: should be called create_identity? it's too late for that
         let response = match self.fr_engine.create_enrollment(&face, config, &ext_id).await {
             Ok(response) => response,
             Err(err) => {
-                _ = self.log_enrollment_error("create_enrollment", &err); //.await?;
+                self.log_enrollment_error("create_enrollment", details, &err).await; //.await?;
                 return Err(err);
             }
         };
@@ -134,6 +134,8 @@ impl FRService {
             Err(e) => return Err(FRError::from(e)),
         }
 
+        debug!("a debug message, bruh. clean me up");
+
         //TODO: is this still a thing?
         self.remote.unregister_enrollment().await?;
         Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() })
@@ -143,13 +145,31 @@ impl FRService {
         self.fr_repo.get_enrollment_metadata().await.map_err(|e| FRError::from(e))
     }
 
-    pub async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
-        let roster =
-            self.fr_repo.get_enrollment_roster(1000).await.map_err(|e| FRError::from(e))?;
+    pub async fn get_enrollment_roster(&self) -> FRResult<Vec<Value>> {
+        let res = self.fr_repo.get_enrollment_roster(1000).await.map_err(|e| FRError::from(e))?;
 
-        Ok(roster.into_iter().map(Self::profile_to_enrollment_item).collect())
+        Ok(Self::profiles_to_values(res))
     }
 
+    pub fn profiles_to_values(profs: Vec<ProfileRecord>) -> Vec<Value> {
+        profs
+            .into_iter()
+            .map(|p| {
+                json!({
+
+                    "fr_id": p.fr_id,
+                    "ext_id": p.ext_id,
+                    "first_name": p.first_name,
+                    "last_name": p.last_name,
+                    "middle_name": p.middle_name,
+                    "img_url": p.img_url,
+
+                })
+            })
+            .collect()
+    }
+
+    //NOTE: danger will robinson!
     pub async fn reset_enrollments(&self) -> FRResult<u64> {
         self.fr_repo.reset_enrollments().await.map_err(|e| FRError::from(e))
     }
@@ -159,17 +179,14 @@ impl FRService {
     }
 
     pub async fn duplicate_check(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
-        let fr_ident = self.fr_engine.recognize(image, config).await?;
+        let fr_idents = self.fr_engine.recognize(image, config).await?;
 
-        if fr_ident.is_empty() {
-            warn!("🟡 a duplicate check was made on an emty database.");
+        if fr_idents.is_empty() {
             return Ok(());
         }
 
-        //not matter what, if there is a face, there is always a possible match. it's the closeness of that
-        //match that matters
         let pm = first_or_else!(
-            fr_ident,
+            fr_idents,
             possible_matches,
             FRError::Engine("dupe_check: no possible matches found.".into())
         );
@@ -180,11 +197,11 @@ impl FRService {
 
         Ok(())
     }
+
     pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
-        // 1. Perform the initial engine recognition
         let mut fr_identities = self.fr_engine.recognize(image, config).await?;
 
-        // 2. Extract and deduplicate External IDs
+        //extract and dedupe External IDs. not really needed but eh.
         let ext_ids: std::collections::HashSet<String> = fr_identities
             .iter()
             .flat_map(|fr| &fr.possible_matches)
@@ -193,19 +210,19 @@ impl FRService {
             .map(|id| id.to_string())
             .collect();
 
-        // Early return if no IDs were found to search for
+        // we got nuttin? bail
         if ext_ids.is_empty() {
             return Ok(fr_identities);
         }
 
-        // 3. Enrich with remote details if requested
+        // Add profile details if requested
         if config.include_details {
             let remote_matches = self
                 .remote
                 .search_by_ids(SearchBy::ExtIDS(ext_ids.into_iter().collect()), false)
                 .await?;
 
-            // Map remote profiles by their ID for O(1) lookup
+            // Map remote profiles by their ID for lookup over loops
             let pmatch_profiles: HashMap<String, TPassProfile> =
                 remote_matches.into_iter().filter_map(|sr| sr.id.zip(sr.details)).collect();
 
@@ -221,13 +238,13 @@ impl FRService {
             }
         }
 
-        // 4. Log the results and return
         self.log_recognition(&fr_identities, config);
         Ok(fr_identities)
     }
+
     fn log_recognition(&self, idents: &[FRIdentity], config: MatchConfig) {
         for ident in idents {
-            // Use a guard pattern to grab the first match
+            // first match or bust
             let Some(pm) = ident.possible_matches.first() else {
                 continue;
             };
@@ -241,84 +258,18 @@ impl FRService {
                     let f_name = json_str!(details, "fName");
                     let m_name = json_str!(details, "mName");
                     let l_name = json_str!(details, "lName");
-                    let img = json_str!(details, "imgUrl");
                     let kind = json_str!(details, "type");
                     let status = json_str!(details, "status");
 
-                    info!(
-                        "👤 Match-{} {} {} {} : url: {} | {} {} | {} {}",
-                        pm.score, f_name, m_name, l_name, img, kind, status, pm.ext_id, pm.fr_id
-                    );
-                    continue; // Skip the fallback log
+                    info!(target: "recognize",
+                        "👤 score: {} | {} {} | {} {} {} | {} {}",
+                        pm.score,pm.ext_id, pm.fr_id, f_name, m_name, l_name, kind, status,                     );
                 }
+            } else {
+                info!(target: "recognize", "👤 score: {} | {} {} | [No Details] ", pm.score, pm.ext_id, pm.fr_id);
             }
-
-            // Fallback: Log only the core IDs and score
-            info!("👤 Match-{} : [No Details] | {} {}", pm.score, pm.ext_id, pm.fr_id);
         }
     }
-
-    // pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
-    //     let mut fr_identities = self.fr_engine.recognize(image, config).await?;
-
-    //     //TODO: we may not always want to contact the remote for profile.
-    //     // many times we'll just want the id pairs and this will waste time and resources
-    //     // when it's not needed
-
-    //     //we extract the ext ids into a flat list from all possible matches for each identity so that we can
-    //     //get updated profile information for each possible match from the remote.
-    //     //what we store locally isn't guaranteed to be up to date
-    //     //or even exist depending on the privacy concerns.
-
-    //     let ext_ids: Vec<String> = fr_identities
-    //         .iter()
-    //         .flat_map(|fr| &fr.possible_matches)
-    //         .filter_map(|pm| {
-    //             let ext_id = pm.ext_id.trim();
-    //             (!ext_id.is_empty()).then(|| ext_id.to_string())
-    //         })
-    //         .collect();
-
-    //     //we got no ids so just return what is very likely an empty vector, ie nothing was recognized.
-    //     if ext_ids.is_empty() {
-    //         return Ok(fr_identities);
-    //     }
-
-    //     //TODO: skip if we want a local only call.
-
-    //     if config.include_details {
-    //         // info!("include detail activated");
-    //         let remote_matches =
-    //             self.remote.search_by_ids(SearchBy::ExtIDS(ext_ids), false).await?;
-
-    //         //now we need to reinsert the updated profile info into the details of each
-    //         //possible match
-
-    //         let pmatch_profiles: HashMap<String, TPassProfile> = remote_matches
-    //             .into_iter()
-    //             .filter_map(|sr| match (sr.id, sr.details) {
-    //                 (Some(id), Some(details)) => Some((id, details)),
-    //                 _ => None,
-    //             })
-    //             .collect();
-
-    //         for fr_ident in &mut fr_identities {
-    //             for possible_match in &mut fr_ident.possible_matches {
-    //                 //we wouldn't get there is ext was empty
-    //                 let key = possible_match.ext_id.trim();
-    //                 if key.is_empty() {
-    //                     continue;
-    //                 }
-
-    //                 if let Some(details) = pmatch_profiles.get(key) {
-    //                     let v = serde_json::to_value(details).unwrap();
-    //                     possible_match.details = Some(v);
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     Ok(fr_identities)
-    // }
 
     pub async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo> {
         self.fr_engine.add_face(fr_id, image).await
@@ -332,10 +283,7 @@ impl FRService {
         self.fr_engine.delete_faces(fr_id, face_ids).await
     }
 
-    pub async fn get_enrollments_by_last_name(
-        &self,
-        name: &str,
-    ) -> FRResult<Vec<EnrollmentRosterItem>> {
+    pub async fn get_enrollments_by_last_name(&self, name: &str) -> FRResult<Vec<Value>> {
         let term = name.trim();
         if term.is_empty() {
             return Ok(vec![]);
@@ -347,7 +295,7 @@ impl FRService {
             .await
             .map_err(|e| FRError::from(e))?;
 
-        Ok(profiles.into_iter().map(Self::profile_to_enrollment_item).collect())
+        Ok(Self::profiles_to_values(profiles))
     }
     pub async fn log_cam_fr_match(
         &self,
@@ -431,12 +379,40 @@ impl FRService {
     //     Ok(())
     // }
 
-    //TODO: might need more info to Enrollment table.
-    async fn log_enrollment_error(&self, code: &str, err: &FRError) -> FRResult<String> {
-        //what happens if the db write fails
-        info!("loggin to enrollment table");
-        error!("{}", err);
-        Ok("logged enrollment error".to_string())
+    async fn log_enrollment_error(
+        &self,
+        code: &str,
+        enroll_details: &EnrollDetails,
+        err: &FRError,
+    ) {
+        warn!(target: "enrollment", "{} {} ", err, Self::format_details_for_log(enroll_details));
+        let json_err = serde_json::to_value(err).unwrap_or(json!({}));
+        let json_input = serde_json::to_value(enroll_details).unwrap_or(json!({}));
+
+        //Database Write (Don't let it kill the app if it fails)
+        let db_res = self.fr_repo.log_enrollment_errors(&[code], &[json_err], &[json_input]).await;
+
+        if let Err(db_err) = db_res {
+            // If the DB log fails, we log THAT to stdout too but we don't stop the application.
+            error!(target: "enrollment", "‼️ CRITICAL: Could not write error log to Postgres: {}", db_err);
+        }
+    }
+
+    fn format_details_for_log(details: &EnrollDetails) -> String {
+        match details {
+            EnrollDetails::Min { ext_id, last_name, first_name } => {
+                // as_deref() turns Option<String> into Option<&str>
+                let id = ext_id.as_deref().unwrap_or("unknown");
+                format!("| ext_id: {} | {} {}", id, first_name, last_name)
+            }
+            EnrollDetails::TPass(prof) => {
+                let id = prof.ccode.unwrap_or(0);
+                let fname = prof.f_name.as_deref().unwrap_or("none");
+                let lname = prof.l_name.as_deref().unwrap_or("none");
+
+                format!("| ext_id: {} | {} {}", id, fname, lname)
+            }
+        }
     }
 
     fn build_profile_record(
@@ -465,19 +441,6 @@ impl FRService {
                 fr_id: fr_id.map(str::to_string),
             },
         }
-    }
-
-    fn profile_to_enrollment_item(profile: ProfileRecord) -> EnrollmentRosterItem {
-        let details = profile.raw_data.clone().unwrap_or_else(|| {
-            json!({
-                "first_name": profile.first_name,
-                "last_name": profile.last_name,
-                "middle_name": profile.middle_name,
-                "img_url": profile.img_url,
-            })
-        });
-
-        EnrollmentRosterItem { fr_id: profile.fr_id, ext_id: profile.ext_id, details }
     }
 
     fn extract_ext_id(details: &EnrollDetails) -> Option<String> {

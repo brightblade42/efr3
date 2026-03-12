@@ -1,10 +1,7 @@
 pub mod paravision;
 mod pvtypes;
 use crate::repo::EnrollmentMetadataRecord;
-use crate::{
-    DeleteFaceResult, EnrolledFaceInfo, EnrollmentRosterItem, FRIdentity, FRResult, Face, IDPair,
-    Template,
-};
+use crate::{DeleteFaceResult, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, Template};
 use bytes::Bytes;
 
 #[allow(async_fn_in_trait)]
@@ -17,8 +14,7 @@ pub trait FRBackend: Send + Sync {
     ) -> FRResult<IDPair>; //create an enrollment for a single face
                            //async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult>; //delete an enrollment for a singel face
     async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord>;
-    async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>>; //get a list of all the enrollments, or a subset for paging
-                                                                                  //async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult>; //delete the whole damn thing. away with you.
+    //async fn reset_enrollments(&self) -> FRResult<ResetEnrollmentsBackendResult>; //delete the whole damn thing. away with you.
     async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>>;
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>>;
 
@@ -28,8 +24,6 @@ pub trait FRBackend: Send + Sync {
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo>;
     async fn delete_faces(&self, fr_id: &str, face_ids: Vec<String>) -> FRResult<DeleteFaceResult>;
     //async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult>;
-    async fn get_enrollments_by_last_name(&self, name: &str)
-        -> FRResult<Vec<EnrollmentRosterItem>>;
 }
 
 pub struct IDSet {

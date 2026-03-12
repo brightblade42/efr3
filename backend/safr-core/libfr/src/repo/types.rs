@@ -36,8 +36,9 @@ pub struct RegistrationErrorRecord {
 pub struct EnrollmentLogRecord {
     pub id: i64,
     pub code: String,
-    pub payload: Value,
-    pub retry_count: Option<i32>,
+    pub error: Value,
+    pub input: Value,
+    //pub retry_count: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

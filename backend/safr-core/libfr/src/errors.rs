@@ -19,10 +19,10 @@ pub struct FRError2 {
 
 #[derive(Serialize, Deserialize, Debug, Error)]
 pub enum FRError {
-    #[error("🎯 Duplicate found: {ext_id} | {fr_id} (score: {score:.4})")]
+    #[error("👤👤 Duplicate found: {ext_id} | {fr_id} (score: {score:.4})")]
     Duplicate { ext_id: String, fr_id: String, score: f32 },
 
-    #[error("🟡 Quality too low: min_qualutyL {min_quality:.2} quality: {quality:.2}")]
+    #[error("🟡 Quality too low: min_quality: {min_quality:.2} quality: {quality:.2}")]
     PoorQuality { quality: f32, min_quality: f32 },
 
     #[error("😬 Add Face failed for identity: fri_id: {fr_id})")]
@@ -111,18 +111,21 @@ impl From<RepoError> for FRError {
     }
 }
 impl From<PVApiError> for FRError {
-    fn from(pv: PVApiError) -> Self {
+    fn from(e: PVApiError) -> Self {
         //TODO: update PVApiError to provide name. we might not even
         // need that error anymore
-        FRError::Generic { code: "PV_API_ERR".to_string(), message: pv.message, details: None }
+
+        error!("‼️ pv api error: {}", e);
+        FRError::Generic { code: "PV_API_ERR".to_string(), message: e.message, details: None }
     }
 }
 
 impl From<&PVApiError> for FRError {
-    fn from(pv: &PVApiError) -> Self {
+    fn from(e: &PVApiError) -> Self {
+        error!("‼️ pv api error: {}", e);
         FRError::Generic {
             code: "PV_API_ERR".to_string(),
-            message: pv.message.clone(),
+            message: e.message.clone(),
             details: None,
         }
     }

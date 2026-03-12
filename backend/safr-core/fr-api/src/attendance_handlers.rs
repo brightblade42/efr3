@@ -2,7 +2,7 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, FRIdentity};
+use libfr::{backend::MatchConfig, FRIdentity, PossibleMatch};
 use libtpass::types::AttendanceKind;
 use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};
@@ -54,16 +54,15 @@ pub async fn mark_attendance(
 
     let idpair = (idnum.to_string(), ccode);
     // 3. Immutably unpack options using map_or
-    let (att_kind, location) = img_data.opts.map_or((None, String::new()), |opt| {
-        let kind = match opt.on_match.as_str() {
-            "check_in" => Some(AttendanceKind::In),
-            "check_out" => Some(AttendanceKind::Out),
-            _ => None,
-        };
-        (kind, opt.rec_location)
-    });
-
-    info!("att kind: {:?}", &att_kind);
+    let (att_name, att_kind, location) =
+        img_data.opts.map_or((String::new(), None, String::new()), |opt| {
+            let kind = match opt.on_match.as_str() {
+                "check_in" => Some(AttendanceKind::In),
+                "check_out" => Some(AttendanceKind::Out),
+                _ => None,
+            };
+            (opt.on_match, kind, opt.rec_location)
+        });
 
     //tell TPASS we're checking in or out.
     let status = match att_kind {
@@ -78,7 +77,10 @@ pub async fn mark_attendance(
     let extra = serde_json::to_value(&status).ok();
 
     let pm = fr_ident.possible_matches.first().unwrap();
+
     app_state.fr_service.log_cam_fr_match(&pm, extra.as_ref(), &location).await?;
+    let client_name = format!("{} {}", json_str!(details, "fName"), json_str!(details, "lName"));
+    info!(target: "attendance", "{} | {} | {} | {}", att_name, pm.fr_id, client_name,  location );
 
     Ok(Json(json!({
         "identity": fr_ident,
@@ -93,7 +95,7 @@ fn validate_details(fr_ident: &FRIdentity) -> WResult<Value> {
         .first()
         .and_then(|x| x.details.clone())
         .ok_or_else(|| {
-            error!("mark_attendance: recognized face does not have any saved details.");
+            error!(target: "attendance", "recognized face does not have any saved details.");
             Generic("recognized face has no saved details. Can't mark for attendance".to_string())
         })
 }

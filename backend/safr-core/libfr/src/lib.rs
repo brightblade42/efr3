@@ -54,13 +54,6 @@ pub struct EnrollmentDeleteResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EnrollmentRosterItem {
-    pub fr_id: Option<String>,
-    pub ext_id: String,
-    pub details: Value,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EnrolledFaceInfo {
     pub face_id: String,
     pub fr_id: String,

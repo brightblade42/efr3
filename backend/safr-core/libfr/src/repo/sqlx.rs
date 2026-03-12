@@ -4,7 +4,7 @@ use crate::repo::{
     EnrollmentLogRecord, EnrollmentMetadataRecord, ImageRecord, ProfileRecord,
     RegistrationErrorRecord, RepoError, RepoResult,
 };
-use crate::PossibleMatch;
+use crate::{EnrollDetails, PossibleMatch};
 use serde_json::Value;
 
 #[derive(Clone)]
@@ -45,6 +45,21 @@ impl SqlxFrRepository {
         Ok(())
     }
 
+    pub async fn log_enrollment_errors(
+        &self,
+        codes: &[&str],
+        errors: &[serde_json::Value],
+        enroll_details: &[Value],
+    ) -> RepoResult<()> {
+        sqlx::query(r"Select logs.log_enrollment_errors($1,$2,$3)")
+            .bind(codes)
+            .bind(errors)
+            .bind(enroll_details)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
     pub async fn log_cam_fr_match(
         &self,
         pm: &PossibleMatch,
@@ -297,29 +312,6 @@ impl SqlxFrRepository {
         Ok(rows)
     }
 
-    pub async fn append_enrollment_log(
-        &self,
-        code: &str,
-        payload: &serde_json::Value,
-    ) -> RepoResult<()> {
-        if code.trim().is_empty() {
-            return Err(RepoError::message("enrollment log code cannot be empty"));
-        }
-
-        sqlx::query(
-            r#"
-            insert into logs.enrollment (code, payload)
-            values ($1, $2)
-            "#,
-        )
-        .bind(code)
-        .bind(payload)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
     pub async fn get_enrollment_logs_by_code(
         &self,
         code: &str,
@@ -327,7 +319,7 @@ impl SqlxFrRepository {
     ) -> RepoResult<Vec<EnrollmentLogRecord>> {
         let rows = sqlx::query_as::<_, EnrollmentLogRecord>(
             r#"
-            select id, code, payload, retry_count
+            select id, code, error, input
             from logs.enrollment
             where code = $1
             order by id desc
@@ -345,7 +337,7 @@ impl SqlxFrRepository {
     pub async fn get_enrollment_logs(&self, limit: i64) -> RepoResult<Vec<EnrollmentLogRecord>> {
         let rows = sqlx::query_as::<_, EnrollmentLogRecord>(
             r#"
-            select id, code, payload, retry_count, created_at, updated_at
+            select  id, code, error, input, created_at, updated_at
             from logs.enrollment
             order by id desc
             limit $1

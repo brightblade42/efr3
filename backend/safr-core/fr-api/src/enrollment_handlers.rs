@@ -2,19 +2,19 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::backend::MatchConfig;
 use libfr::repo::EnrollmentMetadataRecord;
-use libfr::{EnrolledFaceInfo, EnrollmentDeleteResult, EnrollmentRosterItem, IDPair};
+use libfr::{backend::MatchConfig, errors::FRError};
+use libfr::{EnrolledFaceInfo, EnrollmentDeleteResult, IDPair};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{error, info};
 
-use crate::{errors::AppError::Generic, extractors, AppState, WResult};
+use crate::{errors::AppError, extractors, AppState, WResult};
 
 pub async fn search_enrollment(
     State(app_state): State<AppState>,
     Json(search_by): Json<SearchEnrollmentBy>,
-) -> WResult<Json<Vec<EnrollmentRosterItem>>> {
+) -> WResult<Json<Vec<Value>>> {
     let SearchEnrollmentBy::LastName(term) = search_by;
 
     let res = app_state.fr_service.get_enrollments_by_last_name(&term).await?;
@@ -36,11 +36,9 @@ pub async fn create_enrollment(
 }
 
 /// Returns a list of every enrollment in the system. We will want to add paging.
-pub async fn get_enrollment_roster(
-    State(app_state): State<AppState>,
-) -> WResult<Json<Vec<EnrollmentRosterItem>>> {
-    let res = app_state.fr_service.get_enrollment_roster().await?;
-    Ok(Json(res))
+pub async fn get_enrollment_roster(State(app_state): State<AppState>) -> WResult<Json<Vec<Value>>> {
+    let x = app_state.fr_service.get_enrollment_roster().await?;
+    Ok(Json(x))
 }
 
 pub async fn delete_enrollment(
@@ -48,12 +46,13 @@ pub async fn delete_enrollment(
     Json(payload): Json<DeleteEnrollmentBy>,
 ) -> WResult<Json<EnrollmentDeleteResult>> {
     //this is a little weird
-    let fr_id = resolve_fr_id_for_delete(&app_state, payload).await?;
+    //let fr_id = resolve_fr_id_for_delete(&app_state, payload).await?;
+    let fr_id = validate_delete(payload)?;
     let res = app_state
         .fr_service
         .delete_enrollment(&fr_id)
         .await
-        .inspect_err(|e| error!("{}", e))?;
+        .inspect_err(|e| error!(target: "enrollment", "{}", e))?;
     info!("deleted enrollment:  fr_id: {}", &res.fr_id);
     Ok(Json(res))
 }
@@ -85,17 +84,16 @@ pub async fn delete_faces(
     State(app_state): State<AppState>,
     Json(req): Json<DeleteFaceRequest>,
 ) -> WResult<Json<Value>> {
-    // if req.fr_id.trim().is_empty() || req.face_id.trim().is_empty() {
-    //     return Err(Generic("fr_id and face_id are required to delete a face".to_string()));
-    // }
     if req.fr_id.trim().is_empty() || req.face_ids.is_empty() {
-        return Err(Generic("fr_id and at least one face_id are required".to_string()));
+        return Err(AppError::Generic("fr_id and at least one face_id are required".to_string()));
     }
 
     // 2. Check if any of the actual strings inside the array are just blank spaces
     let has_blank_ids = req.face_ids.iter().any(|id| id.trim().is_empty());
     if has_blank_ids {
-        return Err(Generic("One or more face_ids provided are empty strings".to_string()));
+        return Err(AppError::Generic(
+            "One or more face_ids provided are empty strings".to_string(),
+        ));
     }
 
     let res = app_state.fr_service.delete_faces(&req.fr_id, req.face_ids.clone()).await?;
@@ -112,10 +110,10 @@ pub async fn get_enrollment_errlog(State(app_state): State<AppState>) -> WResult
         .fr_repo
         .get_enrollment_logs(100)
         .await
-        .map_err(|e| Generic(format!("failed to load enrollment logs: {}", e)))?;
+        .map_err(|e| AppError::Generic(format!("failed to load enrollment logs: {}", e)))?;
 
     let value = serde_json::to_value(logs)
-        .map_err(|e| Generic(format!("failed to serialize enrollment logs: {}", e)))?;
+        .map_err(|e| AppError::Generic(format!("failed to serialize enrollment logs: {}", e)))?;
 
     Ok(Json(value))
 }
@@ -128,85 +126,17 @@ pub async fn get_enrollment_metadata(
     Ok(Json(res))
 }
 
-async fn resolve_fr_id_for_delete(
-    app_state: &AppState,
-    del_by: DeleteEnrollmentBy,
-) -> WResult<String> {
+//NOTE: old code had multiple possible option but we only want FRID.
+// this does that without making a big change and leaves the option for
+// adding back more later.
+fn validate_delete(del_by: DeleteEnrollmentBy) -> WResult<String> {
     match del_by {
-        DeleteEnrollmentBy::FrId(id) => {
-            let trimmed = id.trim();
-            if trimmed.is_empty() {
-                return Err(Generic("fr_id was provided but empty".to_string()));
-            }
-            Ok(trimmed.to_string())
+        DeleteEnrollmentBy::FrId(id) if !id.is_empty() => Ok(id),
+        DeleteEnrollmentBy::FrId(_) => {
+            return Err(AppError::InvalidInput("fr_id is empty".to_string()));
         }
-        //TODO: rename CCode to ExtID
-        DeleteEnrollmentBy::CCode(ccode) => {
-            let ext_id = ccode.to_string();
-
-            let profile = app_state
-                .fr_repo
-                .get_profile_by_ext_id(&ext_id)
-                .await
-                .map_err(|e| {
-                    Generic(format!(
-                        "failed to resolve enrollment by external id {}: {}",
-                        ext_id, e
-                    ))
-                })?
-                .ok_or_else(|| {
-                    Generic(format!("no enrollment found for external id {}", ext_id))
-                })?;
-
-            //this wouldn't be possible
-            profile
-                .fr_id
-                .ok_or_else(|| Generic(format!("profile for external id {} has no fr_id", ext_id)))
-        }
-        //NOTE: might be a bit dangerous
-        DeleteEnrollmentBy::Name(first, last) => {
-            let profile = app_state
-                .fr_repo
-                .find_profile_by_name(&first, &last, None)
-                .await
-                .map_err(|e| {
-                    Generic(format!(
-                        "failed to resolve enrollment by name '{}, {}': {}",
-                        last, first, e
-                    ))
-                })?
-                .ok_or_else(|| {
-                    Generic(format!("no enrollment found for name '{}, {}'", last, first))
-                })?;
-
-            profile.fr_id.ok_or_else(|| {
-                Generic(format!("profile for name '{}, {}' has no fr_id", last, first))
-            })
-        }
-        DeleteEnrollmentBy::FullName(full) => {
-            let profile = app_state
-                .fr_repo
-                .find_profile_by_name(&full.first, &full.last, full.middle.as_deref())
-                .await
-                .map_err(|e| {
-                    Generic(format!(
-                        "failed to resolve enrollment by full name '{}, {}': {}",
-                        full.last, full.first, e
-                    ))
-                })?
-                .ok_or_else(|| {
-                    Generic(format!(
-                        "no enrollment found for full name '{}, {}'",
-                        full.last, full.first
-                    ))
-                })?;
-
-            profile.fr_id.ok_or_else(|| {
-                Generic(format!(
-                    "profile for full name '{}, {}' has no fr_id",
-                    full.last, full.first
-                ))
-            })
+        _ => {
+            return Err(AppError::InvalidInput("you must delete by fr_id".to_string()));
         }
     }
 }
@@ -223,9 +153,9 @@ pub(crate) enum DeleteEnrollmentBy {
     #[serde(rename = "fr_id")]
     FrId(String),
     #[serde(rename = "ccode")]
-    CCode(u64),
-    Name(String, String),
-    FullName(FullName),
+    ExtID(u64),
+    // Name(String, String),
+    // FullName(FullName),
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -7,8 +7,8 @@ use libfr::{
     backend::{paravision::PVBackend, FRBackend, IDSet, MatchConfig},
     remote::{RegistrationPair, Remote, SearchResult},
     repo::EnrollmentMetadataRecord,
-    DeleteFaceResult, EnrollData, EnrolledFaceInfo, EnrollmentRosterItem, FRIdentity, FRResult,
-    Face, IDPair, SearchBy, Template,
+    DeleteFaceResult, EnrollData, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, SearchBy,
+    Template,
 };
 use libtpass::api::TPassClient;
 #[cfg(test)]
@@ -167,18 +167,6 @@ impl FRBackend for FREngine {
         }
     }
 
-    async fn get_enrollment_roster(&self) -> FRResult<Vec<EnrollmentRosterItem>> {
-        match self {
-            Self::Paravision(backend) => backend.get_enrollment_roster().await,
-            #[cfg(test)]
-            Self::Mock => Ok(vec![EnrollmentRosterItem {
-                fr_id: Some("mock-fr-id".to_string()),
-                ext_id: "123".to_string(),
-                details: json!({"first_name":"Test","last_name":"User"}),
-            }]),
-        }
-    }
-
     async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         match self {
             Self::Paravision(backend) => backend.detect_faces(image, liveness_check).await,
@@ -216,17 +204,6 @@ impl FRBackend for FREngine {
                 let _ = (fr_id, face_ids);
                 Ok(DeleteFaceResult { rows_affected: 1 })
             }
-        }
-    }
-
-    async fn get_enrollments_by_last_name(
-        &self,
-        name: &str,
-    ) -> FRResult<Vec<EnrollmentRosterItem>> {
-        match self {
-            Self::Paravision(backend) => backend.get_enrollments_by_last_name(name).await,
-            #[cfg(test)]
-            Self::Mock => Ok(vec![]),
         }
     }
 }
