@@ -14,6 +14,8 @@
 
 /// Drills into the first element of a nested collection.
 /// Returns the provided error if any part of the path is empty.
+///NOTE: not too sure how useful this will be. thought it would be fun
+/// to see if i could make a little convenience macro. rust is cool.
 #[macro_export]
 macro_rules! first_or_else {
     ($val:expr, $err:expr) => {

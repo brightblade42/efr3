@@ -36,8 +36,8 @@ pub async fn create_enrollment(
 }
 
 /// Returns a list of every enrollment in the system. We will want to add paging.
-pub async fn get_enrollment_roster(State(app_state): State<AppState>) -> WResult<Json<Vec<Value>>> {
-    let x = app_state.fr_service.get_enrollment_roster().await?;
+pub async fn get_roster(State(app_state): State<AppState>) -> WResult<Json<Vec<Value>>> {
+    let x = app_state.fr_service.get_roster().await?;
     Ok(Json(x))
 }
 

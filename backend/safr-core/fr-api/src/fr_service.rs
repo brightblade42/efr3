@@ -145,8 +145,8 @@ impl FRService {
         self.fr_repo.get_enrollment_metadata().await.map_err(|e| FRError::from(e))
     }
 
-    pub async fn get_enrollment_roster(&self) -> FRResult<Vec<Value>> {
-        let res = self.fr_repo.get_enrollment_roster(1000).await.map_err(|e| FRError::from(e))?;
+    pub async fn get_roster(&self) -> FRResult<Vec<Value>> {
+        let res = self.fr_repo.get_roster(1000).await.map_err(|e| FRError::from(e))?;
 
         Ok(Self::profiles_to_values(res))
     }

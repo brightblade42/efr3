@@ -144,9 +144,10 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/enrollment/reset", post(enrollment_handlers::reset_enrollments))
         //TODO: will need a paging strategy
         .route("/enrollment/errlog", post(enrollment_handlers::get_enrollment_errlog))
+        //some summary info, counts of things.
         .route("/enrollment/metadata", get(enrollment_handlers::get_enrollment_metadata))
-        //gets all the enrollments 100 max atm
-        .route("/enrollment/roster", get(enrollment_handlers::get_enrollment_roster))
+        //gets all the enrollments 1000 max atm
+        .route("/enrollment/roster", get(enrollment_handlers::get_roster))
 }
 
 //NOTE: if TPASS is not the remote, these won't do shit.
@@ -271,13 +272,13 @@ async fn main() {
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,
         Err(e) => {
-            error!("failed to bind listener on {}: {}", addr, e);
+            error!(target: "startup", "failed to bind listener on {}: {}", addr, e);
             return;
         }
     };
 
     if let Err(e) = axum::serve(listener, app).await {
-        error!("server error: {}", e);
+        error!(target: "startup","server error: {}", e);
     }
 }
 
@@ -285,6 +286,7 @@ async fn fallback1() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "This is not cool bruh. Not found")
 }
 
+//reduce the set of config options to only what's needed for matchingq
 impl From<&Config> for MatchConfig {
     fn from(c: &Config) -> Self {
         Self {

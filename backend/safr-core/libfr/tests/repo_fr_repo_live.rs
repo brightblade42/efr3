@@ -72,7 +72,7 @@ async fn search_profiles_by_last_name_roundtrip() -> TestResult {
         "expected search results to include inserted profile"
     );
 
-    let roster = repo.get_enrollment_roster(100).await?;
+    let roster = repo.get_roster(100).await?;
     assert!(!roster.is_empty(), "expected roster call to return at least one profile");
 
     let metadata = repo.get_enrollment_metadata().await?;

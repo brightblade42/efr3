@@ -350,7 +350,7 @@ impl SqlxFrRepository {
         Ok(rows)
     }
 
-    pub async fn get_enrollment_roster(&self, limit: i64) -> RepoResult<Vec<ProfileRecord>> {
+    pub async fn get_roster(&self, limit: i64) -> RepoResult<Vec<ProfileRecord>> {
         let rows = sqlx::query_as::<_, ProfileRecord>(
             r#"
             select ext_id, first_name, last_name, middle_name, img_url, raw_data, fr_id
