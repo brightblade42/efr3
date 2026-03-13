@@ -2,8 +2,8 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
+use libfr::backend::MatchConfig;
 use libfr::repo::EnrollmentMetadataRecord;
-use libfr::{backend::MatchConfig, errors::FRError};
 use libfr::{EnrolledFaceInfo, EnrollmentDeleteResult, IDPair};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -139,13 +139,6 @@ fn validate_delete(del_by: DeleteEnrollmentBy) -> WResult<String> {
             return Err(AppError::InvalidInput("you must delete by fr_id".to_string()));
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub(crate) struct FullName {
-    first: String,
-    middle: Option<String>,
-    last: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
