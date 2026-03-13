@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
-use crate::{errors::AppError, errors::StandardError, AppState, WResult};
+use crate::{errors::AppError, AppState, WResult};
 use libtpass::{
     errors::TPassError,
     types::{FRAlert, SearchRequest},

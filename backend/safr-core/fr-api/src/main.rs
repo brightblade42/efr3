@@ -1,14 +1,11 @@
 #[macro_use]
 pub mod macros;
-mod attendance_handlers;
-mod enrollment_handlers;
 mod errors;
 mod extractors;
 mod fr_service;
-mod profile_handlers;
-mod recognition_handlers;
+mod handlers;
 mod runtime;
-mod tpass_handlers;
+use crate::handlers::*;
 use axum::http::{Method, StatusCode};
 //use axum_server::tls_rustls::RustlsConfig;
 use tracing_subscriber::EnvFilter;

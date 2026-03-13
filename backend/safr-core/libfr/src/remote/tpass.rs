@@ -57,6 +57,7 @@ async fn handle_ext_id_search(client: &TPassClient, ext_id: &str) -> TResult<Opt
 }
 
 use super::{RegistrationPair, SearchResult};
+
 impl Remote for TPassClient {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
         //TODO: reconstruct enrollment from old TPass functions.

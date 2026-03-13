@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use libfr::remote::RegistrationPair;
 use libfr::PossibleMatch;
 use libfr::{
     backend::{FRBackend, MatchConfig},
@@ -95,6 +96,7 @@ impl FRService {
         enroll_data: &EnrollData,
         config: MatchConfig,
     ) -> FRResult<IDPair> {
+        //info!(target: "create_enrollment", )
         let (details, ext_id, image) = Self::extract_and_validate_data(enroll_data)?;
         let face = self.ensure_enrollable(image, config).await; //only care about early error return otherwise we know we're good to go
 
@@ -104,19 +106,29 @@ impl FRService {
         let face = face?;
 
         let profile = Self::build_profile_record(&ext_id, None, details);
-        //the whole thing passess or fails.
+        //the whole thing passess or fails. we save it before we have an identity then
+        //it is updated with the new identity.
         self.persist_profile(&profile).await?;
 
         //NOTE: should be called create_identity? it's too late for that
-        let response = match self.fr_engine.create_enrollment(&face, config, &ext_id).await {
-            Ok(response) => response,
+        let id_pair = match self.fr_engine.create_enrollment(&face, config, &ext_id).await {
+            Ok(ids) => ids,
             Err(err) => {
                 self.log_enrollment_error("create_enrollment", details, &err).await; //.await?;
                 return Err(err);
             }
         };
 
-        Ok(response)
+        //TODO: IDPair and RegistrationPair types are redundant, pick one
+        let reg_pair = RegistrationPair::new(id_pair.fr_id.clone(), id_pair.ext_id.clone());
+        if let Err(e) = self.remote.register_enrollment(&reg_pair).await {
+            self.log_enrollment_error("create_enrollment", details, &e).await; //.await?;
+            return Err(e);
+        }
+
+        info!(target: "create_enrollment", "Enrollment registered with Remote: ext_id: {} fr_id: {}", &reg_pair.ext_id, &reg_pair.fr_id);
+
+        Ok(id_pair)
     }
 
     pub async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {

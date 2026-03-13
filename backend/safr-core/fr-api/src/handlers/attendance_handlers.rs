@@ -2,7 +2,7 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, FRIdentity, PossibleMatch};
+use libfr::{backend::MatchConfig, FRIdentity};
 use libtpass::types::AttendanceKind;
 use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};
