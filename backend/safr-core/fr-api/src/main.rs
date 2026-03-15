@@ -1,5 +1,6 @@
 #[macro_use]
-pub mod macros;
+mod macros;
+mod config;
 mod errors;
 mod extractors;
 mod fr_service;
@@ -7,7 +8,7 @@ mod handlers;
 mod runtime;
 use crate::handlers::*;
 use axum::http::{Method, StatusCode};
-//use axum_server::tls_rustls::RustlsConfig;
+use dotenvy::dotenv;
 use tracing_subscriber::EnvFilter;
 
 use axum::{
@@ -23,13 +24,12 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::{error, info};
 
-//use tokio::sync::Mutex;
+use crate::config::AppConfig;
 use crate::errors::AppError;
 use crate::fr_service::FRService;
 use crate::runtime::{FREngine, RemoteRuntime};
+use libfr::backend::MatchConfig;
 use libfr::repo::SqlxFrRepository;
-use libfr::{backend::MatchConfig, utils};
-
 use libtpass::api::TPassClient;
 
 type WResult<T> = Result<T, AppError>;
@@ -40,78 +40,7 @@ struct AppState {
     fr_service: Arc<FRService>,
     fr_repo: Arc<SqlxFrRepository>,
     tpass_client: Arc<TPassClient>,
-    config: Config,
-}
-
-#[derive(Clone)]
-struct Config {
-    pv_ident_url: String,
-    pv_proc_url: String,
-    db_addr: String,
-    db_port: String,
-    db_user: String,
-    db_pwd: String,
-    db_name: String,
-    db_ssl_mode: String,
-    db_max_connections: u32,
-    _cert_dir: String,
-    _use_tls: bool,
-    min_match: f32,
-    min_dupe_match: f32,
-    min_quality: f32,
-    min_acceptability: f32,
-    port: u16,
-}
-impl Config {
-    fn parse_score_threshold(raw: &str, fallback: f32) -> f32 {
-        raw.trim()
-            .parse::<f32>()
-            .map(utils::normalize_score_threshold)
-            .unwrap_or(fallback)
-    }
-
-    fn new() -> Self {
-        //mostly precautionary, env vars are provided by docker-compose files
-        let dev_url = "100.79.241.8"; //tailscale addr.
-        let min_match = env::var("MIN_MATCH").unwrap_or("0.95".to_string());
-        let min_quality = env::var("MIN_QUALITY").unwrap_or("0.80".to_string());
-        let min_acceptability =
-            env::var("MIN_ACCEPTABILITY").unwrap_or_else(|_| "0.70".to_string());
-        let min_dupe_match = env::var("MIN_DUPE_MATCH").unwrap_or("0.98".to_string());
-        let use_tls = env::var("USE_TLS").unwrap_or("false".to_string()); //reverse proxy instead
-                                                                          //TODO: rename
-        let port = env::var("FRAPI_PORT").unwrap_or("3000".to_string());
-
-        Self {
-            //TODO: remove urls for http api since we've moved to gRPC
-            pv_ident_url: env::var("PV_IDENT_URL").unwrap_or(format!("http://{}:5656", dev_url)),
-            pv_proc_url: env::var("PV_PROC_URL").unwrap_or(format!("http://{}:50051", dev_url)),
-
-            //TODO: we don't use the term SAFR anymore, it's EYEFR, also remove vals
-            db_addr: env::var("SAFR_DB_ADDR").unwrap_or("localhost".to_string()),
-            db_port: env::var("SAFR_DB_PORT").unwrap_or("5433".to_string()),
-            db_user: env::var("SAFR_DB_USER").unwrap_or("admin".to_string()),
-            db_pwd: env::var("SAFR_DB_PWD").unwrap_or("admin".to_string()),
-            db_name: env::var("SAFR_DB_NAME").unwrap_or("safr".to_string()),
-            db_ssl_mode: env::var("SAFR_DB_SSLMODE").unwrap_or("disable".to_string()),
-            db_max_connections: env::var("SAFR_DB_MAX_CONNECTIONS")
-                .ok()
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(10),
-
-            //NOTE: this is currently handled by a reverse proxy.
-            _cert_dir: env::var("CERT_DIR").unwrap_or("/cert".to_string()), //should we keep env?
-            _use_tls: use_tls.parse().unwrap_or(false),
-
-            //NOTE: seems unneeded since we fallback on a known good value when parsing env vars
-            min_match: Self::parse_score_threshold(&min_match, 0.95),
-            min_quality: min_quality.parse().unwrap_or(0.80),
-            min_acceptability: min_acceptability.parse().unwrap_or(0.80),
-
-            min_dupe_match: Self::parse_score_threshold(&min_dupe_match, 0.98),
-            port: port.parse().unwrap_or(3000),
-        }
-    }
+    config: AppConfig,
 }
 
 fn api_v2_routes() -> Router<AppState> {
@@ -163,32 +92,31 @@ fn tpass_routes() -> Router<AppState> {
 //TODO: add v1 routes as needed for compat
 //        //v1 endpoint for cam app, deprecated
 //.route("/recognize-faces-b64", post(attendance_handlers::mark_attendance))
-
 #[tokio::main]
 async fn main() {
-    // tracing_subscriber::fmt()
-    //     .with_env_filter( EnvFilter::try_from_default_env()
-    //             .unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn,tower_http=info")),
-    //     )
-    //     .pretty()
-    //     //.compact()
-    //     .init();
+    dotenv().ok(); //look for .env but if not there just move on.
 
     tracing_subscriber::fmt()
-        //        .with_max_level(Level::DEBUG)
         .with_env_filter(EnvFilter::from_default_env()) //do I even need this? I may if I want to reduce tracing output as an optimization in prod
         .init();
     info!("starting the web server!");
 
-    let config = Config::new();
+    let config = match AppConfig::from_env() {
+        Ok(conf) => conf,
+        Err(e) => {
+            error!(target: "startup", "{}", e);
+            return;
+        }
+    };
+
     let db_conn = format!(
         "postgresql://{}:{}@{}:{}/{}?sslmode={}",
-        config.db_user.clone(),
-        config.db_pwd.clone(),
-        config.db_addr.clone(),
-        config.db_port.clone(),
-        config.db_name.clone(),
-        config.db_ssl_mode.clone(),
+        &config.db_user,
+        &config.db_pwd,
+        &config.db_addr,
+        &config.db_port,
+        &config.db_name,
+        &config.db_ssl_mode,
     );
 
     let db_pool = match PgPoolOptions::new()
@@ -284,8 +212,8 @@ async fn fallback1() -> (StatusCode, &'static str) {
 }
 
 //reduce the set of config options to only what's needed for matchingq
-impl From<&Config> for MatchConfig {
-    fn from(c: &Config) -> Self {
+impl From<&AppConfig> for MatchConfig {
+    fn from(c: &AppConfig) -> Self {
         Self {
             min_match: c.min_match,
             min_dupe_match: c.min_dupe_match,
@@ -302,6 +230,7 @@ impl From<&Config> for MatchConfig {
 mod tests {
     use super::*;
     use axum::body::{to_bytes, Body};
+    use axum::extract::FromRef;
     use axum::http::{Request, StatusCode};
     use axum::{routing::post, Json};
     use libtpass::config::TPassConf;
@@ -332,7 +261,7 @@ mod tests {
         let fr_repo = Arc::new(SqlxFrRepository::new(db_pool));
         let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote, fr_repo.clone()));
 
-        AppState { fr_service, fr_repo, tpass_client, config: Config::new() }
+        AppState { fr_service, fr_repo, tpass_client, config: AppConfig::from_env().unwrap() }
     }
 
     fn test_app() -> Router {

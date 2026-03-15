@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use crate::{first_or_else, json_str};
 use bytes::Bytes;
 use libfr::remote::RegistrationPair;
 use libfr::PossibleMatch;
@@ -14,6 +12,8 @@ use libfr::{
 };
 use libtpass::types::TPassProfile;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 //use crate::recognition_handlers::RecognizeOpts;

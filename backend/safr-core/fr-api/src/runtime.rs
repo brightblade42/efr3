@@ -11,8 +11,6 @@ use libfr::{
     Template,
 };
 use libtpass::api::TPassClient;
-#[cfg(test)]
-use serde_json::json;
 use sqlx::PgPool;
 
 const DEFAULT_BACKEND: &str = "paravision-grpc";
