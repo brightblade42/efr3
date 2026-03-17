@@ -19,23 +19,15 @@ const DEFAULT_REMOTE: &str = "tpass";
 #[derive(Clone)]
 pub enum RemoteRuntime {
     TPass(Arc<TPassClient>),
+    Local(Arc<TPassClient>), //local means we do it ourself but using tpass as a placeholder
 }
 
 impl RemoteRuntime {
-    pub fn from_env(
-        remote: Option<String>,
-        tpass_client: Arc<TPassClient>,
-    ) -> Result<Self, String> {
-        let raw = remote.unwrap_or_else(|| DEFAULT_REMOTE.to_string());
-        match raw.to_ascii_lowercase().as_str() {
+    pub fn from_env(remote: &str, tpass_client: Arc<TPassClient>) -> Result<Self, String> {
+        match remote {
             "tpass" => Ok(Self::TPass(tpass_client)),
-            _ => Err(format!("unsupported FR_REMOTE '{}'; supported values: tpass", raw)),
-        }
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::TPass(_) => "tpass",
+            "local" => Ok(Self::Local(tpass_client)),
+            _ => Err(format!("unsupported FR_REMOTE '{}'; supported values: tpass", remote)),
         }
     }
 }
@@ -44,18 +36,21 @@ impl Remote for RemoteRuntime {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
         match self {
             Self::TPass(client) => client.register_enrollment(reg_pair).await,
+            Self::Local(client) => client.register_enrollment(reg_pair).await,
         }
     }
 
     async fn unregister_enrollment(&self) -> FRResult<()> {
         match self {
             Self::TPass(client) => client.unregister_enrollment().await,
+            Self::Local(client) => client.unregister_enrollment().await,
         }
     }
 
     async fn search(&self, enroll_data: &EnrollData) -> FRResult<Vec<SearchResult>> {
         match self {
             Self::TPass(client) => client.search(enroll_data).await,
+            Self::Local(client) => client.search(enroll_data).await,
         }
     }
 
@@ -66,6 +61,7 @@ impl Remote for RemoteRuntime {
     ) -> FRResult<Option<SearchResult>> {
         match self {
             Self::TPass(client) => client.search_one(search, include_image).await,
+            Self::Local(client) => client.search_one(search, include_image).await,
         }
     }
 
@@ -76,6 +72,7 @@ impl Remote for RemoteRuntime {
     ) -> FRResult<Vec<SearchResult>> {
         match self {
             Self::TPass(client) => client.search_by_ids(search, include_img).await,
+            Self::Local(client) => client.search_by_ids(search, include_img).await,
         }
     }
 }
@@ -89,28 +86,19 @@ pub enum FREngine {
 
 impl FREngine {
     pub fn from_env(
-        backend: Option<String>,
+        backend: &str,
         proc_url: String,
         ident_url: String,
         db: PgPool,
     ) -> Result<Self, String> {
-        let raw = backend.unwrap_or_else(|| DEFAULT_BACKEND.to_string());
-        match raw.to_ascii_lowercase().as_str() {
-            "paravision-grpc" | "pv-grpc" | "paravision" | "pv" => {
+        match backend {
+            "paravision-grpc" | "paravision" | "pv" => {
                 Ok(Self::Paravision(PVBackend::new(proc_url, ident_url, db)))
             }
             _ => Err(format!(
                 "unsupported FR_BACKEND '{}'; supported values: paravision-grpc, paravision",
-                raw
+                backend
             )),
-        }
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Paravision(_) => "paravision",
-            #[cfg(test)]
-            Self::Mock => "mock",
         }
     }
 

@@ -18,13 +18,11 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fmt::Write;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 const PARALLEL_REQUESTS: usize = 16;
 
 pub type TResult<T> = Result<T, TPassError>;
-//type FRResult<T> = Result<T, FRError>;
-//type JoinFRResult<T> = Result<FRResult<T>, JoinError>;
 
 ///if we have a number hiding in a string, dig it out and let it be its true self!
 ///NOTE: deserializing a json string to a number turns out to be kind of weird. we get a string
@@ -52,7 +50,7 @@ pub struct TPassClient {
 }
 
 impl TPassClient {
-    pub fn new(conf: Option<TPassConf>) -> Self {
+    pub fn new(conf: TPassConf) -> Self {
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .build()
@@ -61,12 +59,7 @@ impl TPassClient {
                 reqwest::Client::new()
             });
 
-        Self {
-            client,
-            token: Mutex::new(None),
-            refresh_lock: Mutex::new(()),
-            conf: conf.unwrap_or_else(TPassConf::from_env), //always the environment
-        }
+        Self { client, token: Mutex::new(None), refresh_lock: Mutex::new(()), conf }
     }
 
     async fn cached_token(&self) -> Option<String> {
@@ -293,59 +286,6 @@ impl TPassClient {
         Ok(AttendanceStatus::from(res))
     }
 
-    // Facial recognition has found matches and we'll use enrollments request that tpass return their details.
-    // pub async fn get_clients_from_lookup(&mut self, enrollments: Vec<CoreEnrollment>)
-    //     -> TResult<Vec<CoreEnrollment>> {
-
-    //     let ts = self.get_api_token().await?;
-
-    //     let futures = stream::iter(enrollments)
-    //         .map(|mut enrollment| {
-
-    //             let client = self.client.clone(); //bump ref counot
-    //             let token = ts.clone();
-    //             let ccode = enrollment.ccode;
-    //             let url = self.conf.url.clone();
-    //             tokio::spawn(async move {
-    //                 let url = format!("{}api/clients/load?id={}", url, ccode);
-    //                 let res = client.get(url).bearer_auth(token).send().await?;
-    //                 //println!("{:?}", res); //the stuff
-    //                 if res.status() == StatusCode::NO_CONTENT {
-    //                     //what will we get if there's nothting to get. should always get something
-    //                    //TODO: fix problem where enrollment exists but tpass profile deleted.
-    //                     enrollment.details = None;
-    //                     Ok(enrollment)
-    //                 } else {
-    //                     let txt = res.text().await?;
-    //                     let vv: Value = serde_json::from_str(&txt)
-    //                         .expect("text couldn't be parsed as json value");
-    //                     enrollment.details = Some(vv);
-    //                     Ok(enrollment)
-    //                 }
-    //             })
-    //         }).buffer_unordered(PARALLEL_REQUESTS);
-
-    //     let client_res = futures.fold(Vec::new(), |mut acc, res: JoinTResult<CoreEnrollment>| async move {
-    //         match res {
-    //             Ok(Ok(k)) => {
-    //                 //if what we have is an empty {} skip it
-    //                 acc.push(k);
-    //                 acc
-    //             }
-    //             Ok(Err(e)) => {
-    //                 println!("There was an error with the tpass call: {}", e); //a great place to log
-    //                 acc
-    //             },
-    //             Err(e) => {
-    //                 println!("There was some kind of tokio shenanigans {}", e); //a great place to log
-    //                 acc
-    //             }
-    //         }
-    //     }).await;
-
-    //     Ok(client_res)
-    // }
-
     ///pass in some ccodes and get some TPass Clients. typically we use this to get a singular client
     async fn get_clients_by_ccode_report(
         &self,
@@ -366,7 +306,11 @@ impl TPassClient {
                 async move {
                     let result = match client.get(&url).bearer_auth(ts).send().await {
                         Ok(res) => TPassClient::validate_response(res, &url).await,
-                        Err(e) => Err(TPassError::from(e)),
+                        Err(e) => {
+                            error!(target: "TPASS", "{}", e);
+
+                            Err(TPassError::from(e))
+                        }
                     };
                     (url, result)
                 }

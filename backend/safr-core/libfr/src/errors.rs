@@ -1,3 +1,4 @@
+use crate::repo::RepoError;
 use libpv::errors::PVApiError;
 use libtpass::errors::TPassError;
 use serde::{Deserialize, Serialize};
@@ -5,17 +6,6 @@ use serde_json::{json, Value};
 use sqlx::error::Error as SqlxError;
 use thiserror::Error;
 use tracing::error;
-
-use crate::repo::RepoError;
-#[derive(Serialize, Deserialize, Debug, Error)]
-#[error("{message}")]
-pub struct FRError2 {
-    pub code: u16,
-    pub name: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
-}
 
 #[derive(Serialize, Deserialize, Debug, Error)]
 pub enum FRError {
@@ -141,7 +131,6 @@ impl From<TPassError> for FRError {
             }
             TPassError::RegisterEnrollment { ext_id, value } => {
                 let msg = format!("Registration failed for {}: {}", ext_id, value);
-
                 // Log it immediately to your RHEL terminal
                 error!(target: "remote_integration", "🆔 {}", msg);
 
@@ -150,7 +139,8 @@ impl From<TPassError> for FRError {
             // Fallback for HttpError, JsonError, etc.
             _ => {
                 let msg = e.to_string();
-                error!(target: "remote_integration", "🆔 {}", msg);
+                error!(target: "remote_integration_fb", "🆔 {}", msg);
+
                 Self::Remote(msg)
             }
         }

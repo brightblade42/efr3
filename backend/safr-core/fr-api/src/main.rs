@@ -9,6 +9,7 @@ mod runtime;
 use crate::handlers::*;
 use axum::http::{Method, StatusCode};
 use dotenvy::dotenv;
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use axum::{
@@ -16,13 +17,11 @@ use axum::{
     Router,
 };
 use sqlx::postgres::PgPoolOptions;
-use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
-use tracing::{error, info};
 
 use crate::config::AppConfig;
 use crate::errors::AppError;
@@ -30,7 +29,7 @@ use crate::fr_service::FRService;
 use crate::runtime::{FREngine, RemoteRuntime};
 use libfr::backend::MatchConfig;
 use libfr::repo::SqlxFrRepository;
-use libtpass::api::TPassClient;
+use libtpass::{api::TPassClient, config::TPassConf};
 
 type WResult<T> = Result<T, AppError>;
 
@@ -94,12 +93,12 @@ fn tpass_routes() -> Router<AppState> {
 //.route("/recognize-faces-b64", post(attendance_handlers::mark_attendance))
 #[tokio::main]
 async fn main() {
-    dotenv().ok(); //look for .env but if not there just move on.
-
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env()) //do I even need this? I may if I want to reduce tracing output as an optimization in prod
         .init();
-    info!("starting the web server!");
+    dotenv().ok();
+    info!(target: "startup", "starting the web server!");
+    info!(target: "startup", "hi ho");
 
     let config = match AppConfig::from_env() {
         Ok(conf) => conf,
@@ -132,27 +131,29 @@ async fn main() {
         }
     };
 
+    let tp_conf = TPassConf::new(
+        config.remote_url.as_str(),
+        config.remote_user.as_str(),
+        config.remote_pwd.as_str(),
+    );
     //Arc'em up!
-    let tpass_client = Arc::new(TPassClient::new(None));
+    let tpass_client = Arc::new(TPassClient::new(tp_conf));
     let fr_repo = Arc::new(SqlxFrRepository::new(db_pool.clone()));
-    let fr_remote_env = env::var("FR_REMOTE").ok();
-    let fr_backend_env = env::var("FR_BACKEND").ok();
 
     //NOTE: not sure i understand the purpose of this
-    let remote = match RemoteRuntime::from_env(fr_remote_env.clone(), tpass_client.clone()) {
+    let remote = match RemoteRuntime::from_env(config.remote.as_str(), tpass_client.clone()) {
         Ok(remote) => remote,
         Err(e) => {
             error!("{}", e);
             return;
         }
     };
-    let remote_name = remote.name();
     let remote = Arc::new(remote);
 
     let fr_engine = match FREngine::from_env(
-        fr_backend_env.clone(),
-        config.pv_proc_url.clone(),
-        config.pv_ident_url.clone(),
+        config.engine.as_str(),
+        format!("{}:{}", config.proc_addr, config.proc_port),
+        format!("{}:{}", config.ident_addr, config.ident_port),
         db_pool.clone(),
     ) {
         Ok(fr_engine) => fr_engine,
@@ -164,12 +165,9 @@ async fn main() {
 
     info!(target: "startup",
         "startup env FR_BACKEND={} FR_REMOTE={}",
-        fr_backend_env.as_deref().unwrap_or("<unset>"),
-        fr_remote_env.as_deref().unwrap_or("<unset>"),
+        config.engine.as_str(),
+        config.remote.as_str(),
     );
-
-    info!(target: "startup","BACKEND: {}", fr_engine.name());
-    info!(target: "startup", "REMOTE: {}", remote_name);
 
     let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote, fr_repo.clone()));
 
@@ -230,7 +228,7 @@ impl From<&AppConfig> for MatchConfig {
 mod tests {
     use super::*;
     use axum::body::{to_bytes, Body};
-    use axum::extract::FromRef;
+    //use axum::extract::FromRef;
     use axum::http::{Request, StatusCode};
     use axum::{routing::post, Json};
     use libtpass::config::TPassConf;
@@ -239,20 +237,22 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state_with_tpass_url(tpass_url: &str) -> AppState {
+        let config = AppConfig::from_env().unwrap();
+
         let db_pool = PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(Duration::from_millis(200))
             .connect_lazy("postgresql://admin:admin@127.0.0.1:9/identity?sslmode=disable")
             .expect("lazy db pool should build");
 
-        let tpass_client = Arc::new(TPassClient::new(Some(TPassConf {
-            url: tpass_url.to_string(),
+        let tpass_client = Arc::new(TPassClient::new(TPassConf {
+            url: config.remote_url.clone(),
             user: "test-user".to_string(),
             pwd: "test-pwd".to_string(),
-        })));
+        }));
 
         let remote = Arc::new(
-            RemoteRuntime::from_env(Some("tpass".to_string()), tpass_client.clone())
+            RemoteRuntime::from_env("tpass", tpass_client.clone())
                 .expect("remote runtime should initialize"),
         );
 

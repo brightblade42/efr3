@@ -212,7 +212,6 @@ impl FRService {
 
     pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
         let mut fr_identities = self.fr_engine.recognize(image, config).await?;
-
         //extract and dedupe External IDs. not really needed but eh.
         let ext_ids: std::collections::HashSet<String> = fr_identities
             .iter()
@@ -427,6 +426,7 @@ impl FRService {
         }
     }
 
+    //enrollment details to profile transform
     fn build_profile_record(
         ext_id: &str,
         fr_id: Option<&str>,
