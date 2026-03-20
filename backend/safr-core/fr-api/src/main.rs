@@ -64,13 +64,14 @@ fn api_v1_routes() -> Router<AppState> {
 
 fn api_v2_routes() -> Router<AppState> {
     Router::new()
+        //enroll unenroll re-enroll search
         .route("/enrollment/create", post(enrollment_handlers::create_enrollment))
         .route("/enrollment/search", post(enrollment_handlers::search_enrollment))
         .route("/enrollment/delete", post(enrollment_handlers::delete_enrollment))
         .route("/enrollment/add-face", post(enrollment_handlers::add_face))
         .route("/enrollment/delete-faces", post(enrollment_handlers::delete_faces))
         .route("/enrollment/get-faces", post(enrollment_handlers::get_faces))
-        //TODO: test profile (camera based) PROFILE interacts with REMOTE
+        //TODO: test profile (camera based) PROFILE interacts with REMOTE. essentially pass through to remote
         .route("/create-profile", post(profile_handlers::create_profile))
         .route("/edit-profile", post(profile_handlers::edit_profile))
         //TODO: test send alert with cam app
