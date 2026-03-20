@@ -13,7 +13,7 @@ pub enum TPassError {
     MissingImageURL { last_name: String, first_name: String, ext_id: u64 },
     #[error("Missing image for: {last_name} {first_name} {ext_id}")]
     MissingImage { last_name: String, first_name: String, ext_id: u64, img_url: String },
-    #[error("Client not found for ccode: {ext_id}")]
+    #[error("Client or image not found for ccode: {ext_id}")]
     ClientNotFound { ext_id: u64 },
     #[error("Register enrollment failed for ccode: {ext_id}")]
     RegisterEnrollment { ext_id: u64, value: Value },

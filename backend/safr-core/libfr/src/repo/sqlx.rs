@@ -60,6 +60,7 @@ impl SqlxFrRepository {
 
         Ok(())
     }
+
     pub async fn log_cam_fr_match(
         &self,
         pm: &PossibleMatch,

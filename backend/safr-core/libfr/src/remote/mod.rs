@@ -1,4 +1,4 @@
-mod tpass;
+pub mod tpass;
 
 use std::error::Error;
 

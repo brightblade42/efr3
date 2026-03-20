@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 use crate::{extractors, AppState, WResult};
 use libfr::backend::MatchConfig;
+use libfr::FRIdentity;
 //use libfr::Face;
 
 pub async fn quality_check(
@@ -98,7 +99,7 @@ pub async fn detect_faces(
     Ok(Json(json!(faces)))
 }
 
-/// Recognize a face and return information about that face and details about the person
+// Recognize a face and return information about that face and details about the person
 /// it is most likely to be.
 pub async fn recognize(
     State(app_state): State<AppState>,
@@ -150,4 +151,50 @@ fn is_image_valid(
     }
 
     true
+}
+
+//V1 Compat
+pub async fn recognize_v1(
+    State(app_state): State<AppState>,
+    multipart: Multipart,
+) -> WResult<Json<Value>> {
+    let mut mconf = MatchConfig::from(&app_state.config);
+
+    let mut img_data =
+        extractors::extract_image_data(multipart, app_state.config.min_match).await?;
+
+    if let Some(opts) = img_data.opts.as_mut() {
+        mconf.top_n = opts.top_matches as i32;
+        mconf.include_details = true
+    }
+
+    let image = img_data.image.unwrap();
+    let identities = app_state.fr_service.recognize(image, mconf).await?;
+
+    Ok(Json(json!(to_recognize_v1(identities))))
+}
+
+fn to_recognize_v1(fr_idents: Vec<FRIdentity>) -> Value {
+    let identities: Vec<Value> = fr_idents
+        .into_iter()
+        .filter(|x| !x.possible_matches.is_empty())
+        .map(|x| {
+            let pm = &x.possible_matches[0];
+
+            json!({
+                "id": pm.fr_id,
+                "created_at": "2023-01-01T01:01:00", //these aren't useful.
+                "updated_at": "2023-01-01T01:01:00", //dummy vals
+                "confidence": pm.score //TODO: make sure this maps onto what v1 expects score might be a different scale.
+            })
+        })
+        .collect();
+
+    let res = json!({
+
+        "face_count": identities.len(),
+        "identities": identities
+    });
+
+    res
 }

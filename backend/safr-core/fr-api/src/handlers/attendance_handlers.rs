@@ -1,24 +1,63 @@
-use crate::json_str;
+use crate::errors::AppError;
+use crate::extractors::RecognizeFormData;
 use crate::{errors::AppError::Generic, extractors, AppState, WResult};
 use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
+use libfr::json_str;
 use libfr::{backend::MatchConfig, FRIdentity};
-use libtpass::types::AttendanceKind;
+use libtpass::types::{AttendanceKind, AttendanceStatus};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};
 
-/// mark_attendance will recognize a face in an image and notify the remote (tpass) that someone
-/// has entered or exited a building or room.
+//NOTE: mark_attendance and v1 are the same now, but only remove
+//v1 after we've tested from cam server
+pub async fn mark_attendance_v1(
+    State(app_state): State<AppState>,
+    multipart: Multipart,
+) -> WResult<Json<Value>> {
+    let mut img_data =
+        extractors::extract_image_data(multipart, app_state.config.min_match).await?;
+
+    if let Some(opts) = img_data.opts.as_mut() {
+        opts.include_details = true;
+    }
+    info!("{:?}", img_data.opts);
+    // img_data.opts.as_mut().map(|o| o.include_details = true);
+
+    let (fr_ident, status) = do_attendance(app_state, img_data).await?;
+
+    Ok(Json(json!({
+        "identity": fr_ident,
+        "status": status
+    })))
+}
+
 pub async fn mark_attendance(
     State(app_state): State<AppState>,
     multipart: Multipart,
 ) -> WResult<Json<Value>> {
-    let mut mconf = MatchConfig::from(&app_state.config);
     let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
+    let (fr_ident, status) = do_attendance(app_state, img_data).await?;
 
-    if let Some(opts) = &img_data.opts {
+    Ok(Json(json!({
+        "identity": fr_ident,
+        "status": status
+    })))
+}
+/// mark_attendance will recognize a face in an image and notify the remote (tpass) that someone
+/// has entered or exited a building or room.
+pub async fn do_attendance(
+    app_state: AppState,
+    //multipart: Multipart,
+    img_data: RecognizeFormData,
+    //) -> WResult<Json<Value>> {
+) -> WResult<(FRIdentity, Option<AttendanceStatus>)> {
+    let mut mconf = MatchConfig::from(&app_state.config);
+    //let img_data = extractors::extract_image_data(multipart, app_state.config.min_match).await?;
+
+    if let Some(ref opts) = img_data.opts {
         mconf.top_n = opts.top_matches as i32;
         mconf.include_details = opts.include_details;
     }
@@ -27,10 +66,10 @@ pub async fn mark_attendance(
 
     if res.is_empty() {
         debug!("mark_attendance: recognition produced nothing so we bail empty array returned.");
-        return Ok(Json(json!({})));
+        return Err(AppError::Generic("Unknown person can't be marked for attendance".to_string()));
     }
 
-    //not likely to occur
+    //not likely to occur as we know we get single faces from the camera server
     if res.len() > 1 {
         warn!(
             "mark_attendance identified {} faces. This is not supported in this version",
@@ -75,17 +114,11 @@ pub async fn mark_attendance(
     };
 
     let extra = serde_json::to_value(&status).ok();
-
     let pm = fr_ident.possible_matches.first().unwrap();
-
     app_state.fr_service.log_cam_fr_match(&pm, extra.as_ref(), &location).await?;
     let client_name = format!("{} {}", json_str!(details, "fName"), json_str!(details, "lName"));
     info!(target: "attendance", "{} | {} | {} | {}", att_name, pm.fr_id, client_name,  location );
-
-    Ok(Json(json!({
-        "identity": fr_ident,
-        "status": status
-    })))
+    Ok((fr_ident, status))
 }
 
 //make sure we have the personal information required for top match

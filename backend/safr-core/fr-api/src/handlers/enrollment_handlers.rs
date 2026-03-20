@@ -1,10 +1,12 @@
 use axum::{
-    extract::{multipart::Multipart, State},
+    extract::{multipart::Multipart, Query, State},
     Json,
 };
-use libfr::backend::MatchConfig;
-use libfr::repo::EnrollmentMetadataRecord;
-use libfr::{EnrolledFaceInfo, EnrollmentDeleteResult, IDPair};
+use bytes::Bytes;
+use libfr::{backend::MatchConfig, remote::Remote, SearchBy};
+use libfr::{errors::FRError, repo::EnrollmentMetadataRecord};
+use libfr::{EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult, IDPair};
+use libtpass::types::TPassProfile;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{error, info};
@@ -45,8 +47,6 @@ pub async fn delete_enrollment(
     State(app_state): State<AppState>,
     Json(payload): Json<DeleteEnrollmentBy>,
 ) -> WResult<Json<EnrollmentDeleteResult>> {
-    //this is a little weird
-    //let fr_id = resolve_fr_id_for_delete(&app_state, payload).await?;
     let fr_id = validate_delete(payload)?;
     let res = app_state
         .fr_service
@@ -162,4 +162,289 @@ pub(crate) enum SearchEnrollmentBy {
 pub(crate) struct DeleteFaceRequest {
     pub fr_id: String,
     pub face_ids: Vec<String>,
+}
+
+//-----    Version 1 backport -------------
+//
+pub async fn create_enrollment_v1(
+    State(app_state): State<AppState>,
+    Json(en_cmd): Json<EnrollCommand>,
+) -> WResult<Json<EnrollmentResultV1>> {
+    let enroll_data = build_enroll_data(&app_state, &en_cmd).await?;
+
+    match app_state
+        .fr_service
+        .create_enrollment(&enroll_data, MatchConfig::from(&app_state.config))
+        .await
+    {
+        Ok(_) => Ok(Json(EnrollmentResultV1::default())),
+        Err(FRError::Duplicate { ext_id, .. }) => {
+            let dupe_item = DupeItem { ccode: ext_id, ..Default::default() };
+
+            let en_res = EnrollmentResultV1 {
+                dupe_count: 1,
+                enroll_count: 0,
+                duplicates: vec![dupe_item],
+                ..Default::default()
+            };
+            Ok(Json(en_res))
+        }
+        Err(e) => {
+            error!("v1 enrollment failed:  {}", e);
+            Err(AppError::Generic("Enrollment failed for Tpass client".to_string()))
+        }
+    }
+}
+
+//The messiness of V1. validates input and returns EnrollData for create_enrollment
+pub async fn build_enroll_data(
+    app_state: &AppState,
+    en_cmd: &EnrollCommand,
+) -> WResult<EnrollData> {
+    let ccode = en_cmd
+        .candidates
+        .first()
+        .ok_or_else(|| AppError::Generic("ccode not provided".to_string()))?
+        .ccode
+        .clone();
+
+    let include_image = true;
+
+    let s_res = app_state
+        .tpass_client
+        .search_one(SearchBy::ExtID(ccode), include_image)
+        .await?
+        .ok_or_else(|| {
+            AppError::Generic("ccode returned no profile results. enrollment failed.".to_string())
+        })?;
+
+    let img = s_res
+        .image
+        .ok_or_else(|| {
+            AppError::Generic("Could not download profile image. enrollment failed".to_string())
+        })?
+        .bytes
+        .ok_or_else(|| {
+            AppError::Generic(
+                "could not read image, empty or malformed. enrollment failed".to_string(),
+            )
+        })?;
+
+    if img.is_empty() {
+        return Err(AppError::Generic("image has no size. enrollment failed".to_string()));
+    }
+
+    let details = s_res.details.ok_or_else(|| {
+        AppError::Generic("Could not load profile details. enrollment failed".to_string())
+    })?;
+
+    Ok(EnrollData { image: Some(img), details: Some(EnrollDetails::TPass(details)) })
+}
+
+//TPASS sends an older structure for enrollment.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TPassCandidate {
+    pub ccode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_or_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub typ: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comp_id: Option<String>,
+}
+
+//NOTE: candidates is a vec but pretty sure tpass only sends one at a time.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EnrollCommand {
+    pub command: String,
+    pub candidates: Vec<TPassCandidate>,
+}
+
+impl From<EnrollCommand> for EnrollData {
+    fn from(value: EnrollCommand) -> Self {
+        todo!()
+    }
+}
+
+impl From<&EnrollCommand> for EnrollData {
+    fn from(value: &EnrollCommand) -> Self {
+        todo!()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EnrollmentResultV1 {
+    pub dupe_count: u32,
+    pub duplicates: Vec<DupeItem>,
+    pub enroll_count: u32,
+    pub no_img_count: u32,
+    pub rec_fail_count: u32,
+    pub search_count: u32,
+}
+
+impl Default for EnrollmentResultV1 {
+    fn default() -> Self {
+        Self {
+            dupe_count: 0,
+            duplicates: vec![],
+            enroll_count: 1,
+            no_img_count: 0,
+            rec_fail_count: 0,
+            search_count: 1,
+        }
+    }
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DupeItem {
+    pub ccode: String,
+    pub identities: Vec<Value>,
+}
+
+impl Default for DupeItem {
+    fn default() -> Self {
+        Self {
+            ccode: "0".to_string(),
+            identities: vec![json!({
+                "id": "123abc456def",
+                "created_at": "2023-01-01T01:01:00", //these aren't useful.
+                "updated_at": "2023-01-01T01:01:00", //dummy vals
+                "confidence": 0.90
+            })],
+        }
+    }
+}
+
+pub async fn delete_enrollment_v1(
+    State(app_state): State<AppState>,
+    Json(del_req): Json<DeleteEnrollmentsRequestV1>,
+) -> WResult<Json<Value>> {
+    let fr_id = del_req
+        .fr_ids
+        .first()
+        .ok_or_else(|| AppError::Generic("No fr_id was found. Did you send one?".to_string()))?;
+
+    let del_res = app_state
+        .fr_service
+        .delete_enrollment(&fr_id)
+        .await
+        .inspect_err(|e| error!(target: "enrollment", "{}", e));
+
+    let res = match del_res {
+        Ok(v) => {
+            info!("1️⃣ deleted enrollment:  fr_id: {}", v.fr_id);
+            json!({
+                "delete_results": [
+                    {
+                        "fr_id": &fr_id,
+                        "msg": "",
+                        "result": "success"
+                    }
+                ]
+            })
+        }
+        Err(e) => {
+            json!({
+                "delete_results": [
+                    {
+                        "fr_id": &fr_id,
+                        "msg": e.to_string(),
+                        "result": "fail"
+                    }
+                ]
+            })
+        }
+    };
+
+    Ok(Json(json!(res)))
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeleteEnrollmentsRequestV1 {
+    pub fr_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_delete: Option<bool>, //includes requesting delete to linked servers like tpass
+}
+
+pub async fn add_face_v1(
+    State(app_state): State<AppState>,
+    Query(params): Query<QParams>,
+    multipart: Multipart,
+) -> WResult<Json<AddFaceResponseV1>> {
+    let fr_id = params.fr_id.ok_or_else(|| {
+        AppError::Generic("fr_id query param is empty. what would we be adding?".to_string())
+    })?;
+
+    let mut face_req = extractors::extract_add_face_form_data(multipart).await?;
+    face_req.fr_id = fr_id;
+
+    let res = app_state.fr_service.add_face(&face_req.fr_id, face_req.image.unwrap()).await?;
+
+    Ok(Json(AddFaceResponseV1 { fr_id: res.fr_id, face_id: res.face_id }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QParams {
+    //#[serde(default, deserialize_with = "empty_string_as_none")]
+    pub fr_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AddFaceResponseV1 {
+    pub face_id: String,
+    pub fr_id: String,
+}
+
+pub async fn delete_face_v1(
+    State(app_state): State<AppState>,
+    Json(req): Json<DeleteFaceBy>,
+) -> WResult<Json<DeleteFaceBy>> {
+    if req.face_id.trim().is_empty() || req.fr_id.trim().is_empty() {
+        return Err(AppError::Generic(
+            "must provide fr_id and face_id to delete a secondary face".to_string(),
+        ));
+    }
+
+    let res = app_state.fr_service.delete_faces(&req.fr_id, vec![req.face_id.clone()]).await?;
+
+    Ok(Json(req))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteFaceBy {
+    pub fr_id: String,
+    pub face_id: String,
+}
+
+pub async fn get_faces_v1(
+    State(app_state): State<AppState>,
+    Json(req): Json<GetFacesRequest>,
+) -> WResult<Json<Value>> {
+    if req.fr_id.is_empty() {
+        return Err(AppError::Generic("fr_id was empty. Did you send one?".to_string()));
+    }
+    let faces_info = app_state.fr_service.get_faces(req.fr_id.as_str()).await?;
+    let face_vals: Vec<Value> = faces_info
+        .into_iter()
+        .map(|fi| {
+            json!({
+                "id": fi.face_id,
+                "created_at": fi.created_at,
+                "quality": fi.quality
+
+            })
+        })
+        .collect();
+
+    let resp = json!({
+      "faces": face_vals,
+      "next_page_token": "",
+      "total_size": face_vals.len()
+    });
+
+    Ok(Json(resp))
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GetFacesRequest {
+    pub fr_id: String,
 }

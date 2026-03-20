@@ -1,5 +1,4 @@
 use crate::{env_parse, env_string, req_env_parse, req_env_string, req_env_threshold};
-use std::fmt;
 use thiserror::Error;
 
 #[derive(Clone, Debug)]

@@ -1,7 +1,25 @@
+#[macro_use]
+mod macros;
+///lib.rs
+///The main library for interacting with an FR engine and a remote management system.
+///An FR Engine is a backend that handles the analysis of images to find faces
+///and provide information about them, and the identification of those faces.
+///The remote management system is a 3rd party or local system for managing people (vms/cms/erp)
+///It's purpose is to store identifying information and images of people.
+///We keep that separate to keep a privacy barrier. We store as little personal information
+///as possible and delegate to another service for that.
+///libfr combines the 2 pillars (FREngine and Remote) into a unified library
+///it coordinates between the two, logs information about system events.
+///it provides a system on top to facilitate the managment of enrollments.
+///Enrollments represent an identity that has been entered into the system by providing
+///an image and some minimal identitifying information , as little as an id that can be used to
+///query the remote for personal details as necessary for returning to a user/program at the time
+///of a positive facial recognition event.
 pub mod backend;
 pub mod errors;
 pub mod remote;
 pub mod repo;
+pub mod service;
 use bytes::Bytes;
 
 use errors::FRError;
@@ -61,6 +79,18 @@ pub struct EnrolledFaceInfo {
     pub quality: f32,
 }
 
+impl From<libpv::identity_grpc::identity::Face> for EnrolledFaceInfo {
+    fn from(f: libpv::identity_grpc::identity::Face) -> Self {
+        Self {
+            face_id: f.id,
+            fr_id: f.identity_id,
+            quality: f.quality,
+            created_at: backend::pvtypes::timestamp_to_rfc3339(f.created_at),
+        }
+    }
+}
+
+//NOTE: rows_affected is a bad name.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeleteFaceResult {
     pub rows_affected: i32,

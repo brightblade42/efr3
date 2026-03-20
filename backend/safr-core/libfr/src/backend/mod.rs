@@ -1,5 +1,5 @@
 pub mod paravision;
-mod pvtypes;
+pub mod pvtypes;
 use crate::repo::EnrollmentMetadataRecord;
 use crate::{DeleteFaceResult, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, Template};
 use bytes::Bytes;
@@ -23,6 +23,7 @@ pub trait FRBackend: Send + Sync {
 
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo>;
     async fn delete_faces(&self, fr_id: &str, face_ids: Vec<String>) -> FRResult<DeleteFaceResult>;
+    async fn get_faces(&self, fr_id: &str) -> FRResult<Vec<EnrolledFaceInfo>>;
     //async fn get_face_info(&self, fr_id: &str) -> FRResult<GetFaceInfoResult>;
 }
 

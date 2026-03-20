@@ -13,7 +13,10 @@ use crate::{
 };
 use crate::{DeleteFaceResult, FRError, FRIdentity, Face, IDPair};
 use bytes::Bytes;
-use libpv::identity_grpc::{identity, PVIdentityGrpcApi};
+use libpv::identity_grpc::{
+    identity::{self, GetFacesRequest},
+    PVIdentityGrpcApi,
+};
 use libpv::proc_grpc::{processor, PVProcGrpcApi};
 use serde_json::json;
 use sqlx::PgPool;
@@ -115,6 +118,7 @@ impl FRBackend for PVBackend {
         Ok(IDPair { fr_id: fr_id.id, ext_id: ext_id.to_string() })
     }
 
+    //TODO: this should come from repo
     //retrieve some basic count. could be better
     async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
@@ -212,5 +216,13 @@ impl FRBackend for PVBackend {
         let res = self.ident_api.delete_faces(delete_req).await?;
 
         Ok(DeleteFaceResult { rows_affected: res.rows_affected })
+    }
+
+    async fn get_faces(&self, fr_id: &str) -> FRResult<Vec<EnrolledFaceInfo>> {
+        let req = GetFacesRequest { identity_id: fr_id.to_string(), ..Default::default() };
+        let res = self.ident_api.get_faces(req).await?;
+
+        let faces = res.faces.into_iter().map(EnrolledFaceInfo::from).collect();
+        Ok(faces)
     }
 }

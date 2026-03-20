@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_common"
+
+ATT_KIND="${2:-check_out}"  # check_in | check_out
+LOCATION="${3:-Front Gate}"
+INCLUDE_DETAILS="${4:-true}"
+
+IMAGE="${1:-$DEFAULT_IMAGE}"
+require_image "$IMAGE"
+IMAGE=$(base64 -i "$IMAGE" | tr -d '\n')
+INCLUDE_DETAILS="${2:-false}"
+
+OPTS="$(printf '{"top_matches":1,"include_detected_faces":false,"on_match":"%s","min_match":0.95,"rec_location":"%s","include_details": %s}' "$ATT_KIND" "$LOCATION" "$INCLUDE_DETAILS")"
+
+curl_json POST "/fr/recognize-faces-b64" \
+  -F "opts=${OPTS};type=application/json" \
+  -F "image=${IMAGE};filename=face.jpg;type=image/jpeg"

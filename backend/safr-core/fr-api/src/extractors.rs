@@ -1,6 +1,9 @@
+use std::os::unix::raw;
+
 use axum::extract::multipart::Multipart;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use image::ImageFormat;
 use libfr::EnrollData;
 use libtpass::types::NewProfileRequest;
 use serde::{Deserialize, Serialize};
@@ -67,9 +70,9 @@ pub async fn extract_image_data(
     {
         match field.name().unwrap_or("") {
             "image" => {
-                let content_type = field.content_type().map(|item| item.to_string());
+                //let content_type = field.content_type().map(|item| item.to_string());
                 let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                image_data.image = parse_image_field(bytes, content_type.as_deref())?;
+                image_data.image = parse_image_field(bytes)?;
             }
 
             "opts" => {
@@ -105,9 +108,9 @@ pub async fn extract_add_face_form_data(mut multipart: Multipart) -> WResult<Add
     {
         match field.name().unwrap_or("") {
             "image" => {
-                let content_type = field.content_type().map(|item| item.to_string());
+                //let content_type = field.content_type().map(|item| item.to_string());
                 let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                face_req.image = parse_image_field(bytes, content_type.as_deref())?;
+                face_req.image = parse_image_field(bytes)?;
             }
 
             "fr_id" => {
@@ -136,9 +139,9 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
     {
         match field.name().unwrap_or("") {
             "image" => {
-                let content_type = field.content_type().map(|item| item.to_string());
+                //let content_type = field.content_type().map(|item| item.to_string());
                 let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                enroll_data.image = parse_image_field(bytes, content_type.as_deref())?;
+                enroll_data.image = parse_image_field(bytes)?;
             }
             "details" => {
                 debug!("received details for enrollment");
@@ -175,9 +178,9 @@ pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewPro
     {
         match field.name().unwrap_or("") {
             "image" => {
-                let content_type = field.content_type().map(|item| item.to_string());
+                //let content_type = field.content_type().map(|item| item.to_string());
                 let bytes = field.bytes().await.map_err(|x| Generic(x.to_string()))?;
-                image = parse_image_field(bytes, content_type.as_deref())?;
+                image = parse_image_field(bytes)?;
             }
             "profile" => {
                 info!("got new profile request");
@@ -212,42 +215,43 @@ pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewPro
     }
 }
 
-//check if the raw_bytes based in are the actual image bytes or base64 encoded
 //and either convert the base64 encoding or return the raw_bytes unchanged.
-fn parse_image_field(raw_bytes: Bytes, content_type: Option<&str>) -> WResult<Option<Bytes>> {
+fn parse_image_field(raw_bytes: Bytes) -> WResult<Option<Bytes>> {
     if raw_bytes.is_empty() {
         return Ok(None);
     }
 
-    //NOTE: the client must name the image portion of the upload, "image" or no werky, jerky
-    if content_type.is_some_and(|item| item.starts_with("image")) {
-        return Ok(Some(raw_bytes));
-    }
+    let bytes = if let Ok(text) = std::str::from_utf8(&raw_bytes) {
+        match decode_base64_image(text) {
+            Ok(decoded) => decoded,
+            Err(_) => raw_bytes,
+        }
+    } else {
+        raw_bytes
+    };
 
-    match std::str::from_utf8(&raw_bytes) {
-        Ok(text) => decode_base64_image(text).map(Some),
-        Err(_) => Ok(Some(raw_bytes)),
-    }
+    guess_image_format(&bytes)?;
+
+    Ok(Some(bytes))
 }
 
-//NOTE: how long do we plan to keep the base64 version of images. binary should at least
-//be the preferred default. remember base64 is 33% larger.
 fn decode_base64_image(input: &str) -> WResult<Bytes> {
     let cleaned = input.trim();
     if cleaned.is_empty() {
         return Err(Generic("image field was empty".to_string()));
     }
 
-    let payload = cleaned
-        .split_once(',')
-        .filter(|(prefix, _)| {
-            prefix.to_ascii_lowercase().contains(";base64")
-                || prefix.to_ascii_lowercase().starts_with("data:")
-        })
-        .map_or(cleaned, |(_, value)| value)
-        .trim();
+    let payload = if let Some((prefix, value)) = cleaned.split_once(',') {
+        let prefix = prefix.trim().to_ascii_lowercase();
 
-    //NOTE: this seems a bit extra but we'll leave for now since it doesn't hurt to be explicit.
+        if prefix.starts_with("data:") && prefix.contains(";base64") {
+            value.trim()
+        } else {
+            cleaned
+        }
+    } else {
+        cleaned
+    };
 
     for engine in [
         &general_purpose::STANDARD,
@@ -262,3 +266,59 @@ fn decode_base64_image(input: &str) -> WResult<Bytes> {
 
     Err(Generic("image field was text but was not valid base64".to_string()))
 }
+
+fn guess_image_format(bytes: &[u8]) -> WResult<ImageFormat> {
+    image::guess_format(bytes)
+        .map_err(|_| Generic("uploaded data is not a recognized image format".to_string()))
+}
+
+//check if the raw_bytes based in are the actual image bytes or base64 encoded
+//and either convert the base64 encoding or return the raw_bytes unchanged.
+// fn parse_image_field(raw_bytes: Bytes, content_type: Option<&str>) -> WResult<Option<Bytes>> {
+//     if raw_bytes.is_empty() {
+//         return Ok(None);
+//     }
+
+//     //NOTE: the client must name the image portion of the upload, "image" or no werky, jerky
+//     if content_type.is_some_and(|item| item.starts_with("image")) {
+//         return Ok(Some(raw_bytes));
+//     }
+
+//     match std::str::from_utf8(&raw_bytes) {
+//         Ok(text) => decode_base64_image(text).map(Some),
+//         Err(_) => Ok(Some(raw_bytes)),
+//     }
+// }
+
+// //NOTE: how long do we plan to keep the base64 version of images. binary should at least
+// //be the preferred default. remember base64 is 33% larger.
+// fn decode_base64_image(input: &str) -> WResult<Bytes> {
+//     let cleaned = input.trim();
+//     if cleaned.is_empty() {
+//         return Err(Generic("image field was empty".to_string()));
+//     }
+
+//     let payload = cleaned
+//         .split_once(',')
+//         .filter(|(prefix, _)| {
+//             prefix.to_ascii_lowercase().contains(";base64")
+//                 || prefix.to_ascii_lowercase().starts_with("data:")
+//         })
+//         .map_or(cleaned, |(_, value)| value)
+//         .trim();
+
+//     //NOTE: this seems a bit extra but we'll leave for now since it doesn't hurt to be explicit.
+
+//     for engine in [
+//         &general_purpose::STANDARD,
+//         &general_purpose::STANDARD_NO_PAD,
+//         &general_purpose::URL_SAFE,
+//         &general_purpose::URL_SAFE_NO_PAD,
+//     ] {
+//         if let Ok(decoded) = engine.decode(payload) {
+//             return Ok(Bytes::from(decoded));
+//         }
+//     }
+
+//     Err(Generic("image field was text but was not valid base64".to_string()))
+// }
