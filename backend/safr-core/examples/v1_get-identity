@@ -9,6 +9,6 @@ require_arg "$FR_ID" "fr_id"
 
 PAYLOAD="$(printf '{"fr_id":"%s"}' "$FR_ID")"
 
-curl_json POST "/fr/v2/get-identity" \
+curl_json POST "/fr/get-identity" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD"

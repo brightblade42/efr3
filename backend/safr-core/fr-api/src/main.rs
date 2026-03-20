@@ -69,6 +69,7 @@ fn api_v2_routes() -> Router<AppState> {
         .route("/enrollment/delete", post(enrollment_handlers::delete_enrollment))
         .route("/enrollment/add-face", post(enrollment_handlers::add_face))
         .route("/enrollment/delete-faces", post(enrollment_handlers::delete_faces))
+        .route("/enrollment/get-faces", post(enrollment_handlers::get_faces))
         //TODO: test profile (camera based) PROFILE interacts with REMOTE
         .route("/create-profile", post(profile_handlers::create_profile))
         .route("/edit-profile", post(profile_handlers::edit_profile))

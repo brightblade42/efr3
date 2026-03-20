@@ -415,6 +415,16 @@ pub struct DeleteFaceBy {
     pub face_id: String,
 }
 
+pub async fn get_faces(
+    State(app_state): State<AppState>,
+    Json(req): Json<GetFacesRequest>,
+) -> WResult<Json<Vec<EnrolledFaceInfo>>> {
+    if req.fr_id.is_empty() {
+        return Err(AppError::Generic("fr_id was empty. Did you send one?".to_string()));
+    }
+    let faces_info = app_state.fr_service.get_faces(req.fr_id.as_str()).await?;
+    Ok(Json(faces_info))
+}
 pub async fn get_faces_v1(
     State(app_state): State<AppState>,
     Json(req): Json<GetFacesRequest>,
