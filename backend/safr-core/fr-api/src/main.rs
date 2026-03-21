@@ -26,7 +26,7 @@ use tower_http::services::ServeDir;
 use crate::config::AppConfig;
 use crate::errors::AppError;
 
-use libfr::dispatch::{AssetDispatcher, FREngine};
+use libfr::dispatch::{AssetDispatcher, FRDispatcher};
 use libfr::repo::SqlxFrRepository;
 use libfr::service::FRService;
 use libtpass::{api::TPassClient, config::TPassConf};
@@ -168,7 +168,7 @@ async fn main() {
     let remote = Arc::new(remote);
 
     //our fr backend
-    let fr_engine = match FREngine::new(
+    let fr_engine = match FRDispatcher::new(
         config.engine.as_str(),
         format!("{}:{}", config.proc_addr, config.proc_port),
         format!("{}:{}", config.ident_addr, config.ident_port),
@@ -267,7 +267,7 @@ mod tests {
         );
 
         // REAL FR ENGINE: Local test Paravision container
-        let fr_engine = FREngine::new(
+        let fr_engine = FRDispatcher::new(
             "paravision",
             "127.0.0.1:50051".to_string(),
             "127.0.0.1:50052".to_string(),

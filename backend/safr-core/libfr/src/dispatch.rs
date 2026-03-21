@@ -115,11 +115,11 @@ pub trait FRBackend: Send + Sync {
 }
 
 #[derive(Clone)]
-pub enum FREngine {
+pub enum FRDispatcher {
     Paravision(PVBackend),
 }
 
-impl FREngine {
+impl FRDispatcher {
     pub fn new(
         backend: &str,
         proc_url: String,
@@ -138,7 +138,7 @@ impl FREngine {
     }
 }
 
-impl FRBackend for FREngine {
+impl FRBackend for FRDispatcher {
     async fn create_enrollment(
         &self,
         face: &Face,

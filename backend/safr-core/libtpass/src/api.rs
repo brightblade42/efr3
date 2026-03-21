@@ -646,7 +646,6 @@ impl TPassClient {
         Ok(reg_val)
     }
 
-    //rethink errors here
     ///searches tpass based on a given name in last, first format
     ///returns a Vec<Value> because it's possible to send a partial name which could result in multiple
     ///results. This also searches All statuses.. The same person may be in the system more than once,.

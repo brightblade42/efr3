@@ -2,7 +2,7 @@ use crate::{first_or_else, json_str};
 use bytes::Bytes;
 
 use crate::{
-    dispatch::{AssetDispatcher, AssetStore, FRBackend, FREngine},
+    dispatch::{AssetDispatcher, AssetStore, FRBackend, FRDispatcher},
     errors::FRError,
     repo::{EnrollmentMetadataRecord, ProfileRecord, SqlxFrRepository},
     tpass_types::RegistrationPair,
@@ -22,18 +22,18 @@ use tracing::{debug, error, info, warn};
 //use crate::runtime::{FREngine, RemoteRuntime};
 #[derive(Clone)]
 pub struct FRService {
-    fr_engine: Arc<FREngine>,
-    remote: Arc<AssetDispatcher>,
+    fr_engine: Arc<FRDispatcher>,
+    assets: Arc<AssetDispatcher>,
     fr_repo: Arc<SqlxFrRepository>,
 }
 
 impl FRService {
     pub fn new(
-        fr_engine: Arc<FREngine>,
+        fr_engine: Arc<FRDispatcher>,
         assets: Arc<AssetDispatcher>,
         fr_repo: Arc<SqlxFrRepository>,
     ) -> Self {
-        Self { fr_engine, remote: assets, fr_repo }
+        Self { fr_engine, assets, fr_repo }
     }
 
     fn extract_and_validate_data(
@@ -122,7 +122,7 @@ impl FRService {
 
         //TODO: IDPair and RegistrationPair types are redundant, pick one
         let reg_pair = RegistrationPair::new(id_pair.fr_id.clone(), id_pair.ext_id.clone());
-        if let Err(e) = self.remote.register_enrollment(&reg_pair).await {
+        if let Err(e) = self.assets.register_enrollment(&reg_pair).await {
             self.log_enrollment_error("create_enrollment", details, &e).await; //.await?;
             return Err(e);
         }
@@ -150,7 +150,7 @@ impl FRService {
         debug!("a debug message, bruh. clean me up");
 
         //TODO: is this still a thing?
-        self.remote.unregister_enrollment().await?;
+        self.assets.unregister_enrollment().await?;
         Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() })
     }
 
@@ -230,7 +230,7 @@ impl FRService {
         // Add profile details if requested
         if config.include_details {
             let remote_matches = self
-                .remote
+                .assets
                 .search_by_ids(SearchBy::ExtIDS(ext_ids.into_iter().collect()), false)
                 .await?;
 

@@ -4,8 +4,6 @@ use crate::types::{EnrollData, EnrollDetails, FRResult, Image, SearchBy};
 use libtpass::{api::TPassClient, api::TResult, errors::TPassError};
 use tracing::{error, info, warn};
 
-//pub type TPassResult<T> = Result<T, TPassError>;
-
 async fn handle_name_search(
     client: &TPassClient,
     first_name: &str,
@@ -116,11 +114,8 @@ impl AssetStore for TPassClient {
                     }
                     EnrollDetails::TPass(prof) => {
                         //TODO: this is weird logic to call search if we've already searched
-                        //turns out that this means we've already searched. so pass back
-                        //Search Results
+                        //turns out that this means we've already searched.
                         info!("remote search skipped. data requirement satisfied");
-
-                        //let ccode = prof.ccode; //tpd["ccode"].as_u64();
 
                         let image =
                             enroll_data.image.clone().ok_or_else(|| TPassError::MissingImage {
@@ -139,13 +134,6 @@ impl AssetStore for TPassClient {
                         };
 
                         Ok(vec![sr])
-
-                        //Err(FRError::with_code(1002, "Um, we don't need to search. error because I don't know what to do yet!"))
-
-                        //we could attempt to parse it to a known TPass value....
-                        //assume TPass is the full enchilada and we don't need do a search
-                        //a search may have already been executed if we have a full profile
-                        //do we have a ccode? search by that.
                     }
                 }
             }
