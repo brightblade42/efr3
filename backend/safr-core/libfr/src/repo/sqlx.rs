@@ -2,9 +2,9 @@ use sqlx::PgPool;
 
 use crate::repo::{
     EnrollmentLogRecord, EnrollmentMetadataRecord, ImageRecord, ProfileRecord,
-    RegistrationErrorRecord, RepoError, RepoResult,
+    RegistrationErrorRecord, RepoResult,
 };
-use crate::{EnrollDetails, PossibleMatch};
+use crate::types::PossibleMatch;
 use serde_json::Value;
 
 #[derive(Clone)]

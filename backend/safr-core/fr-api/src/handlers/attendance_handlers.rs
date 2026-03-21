@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use libfr::json_str;
-use libfr::{backend::MatchConfig, FRIdentity};
+use libfr::types::{FRIdentity, MatchConfig};
 use libtpass::types::{AttendanceKind, AttendanceStatus};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};

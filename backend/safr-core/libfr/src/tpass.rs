@@ -1,7 +1,7 @@
-use crate::{remote::Remote, EnrollData, EnrollDetails, FRError, FRResult, Image, SearchBy};
-
+use crate::dispatch::AssetStore;
+use crate::tpass_types::{RegistrationPair, SearchResult};
+use crate::types::{EnrollData, EnrollDetails, FRResult, Image, SearchBy};
 use libtpass::{api::TPassClient, api::TResult, errors::TPassError};
-use serde_json::json;
 use tracing::{error, info, warn};
 
 //pub type TPassResult<T> = Result<T, TPassError>;
@@ -56,9 +56,9 @@ async fn handle_ext_id_search(client: &TPassClient, ext_id: &str) -> TResult<Opt
     }))
 }
 
-use super::{RegistrationPair, SearchResult};
+//use ::{RegistrationPair, SearchResult};
 
-impl Remote for TPassClient {
+impl AssetStore for TPassClient {
     async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
         //TODO: reconstruct enrollment from old TPass functions.
         let ccode = reg_pair.ext_id.parse::<u64>().map_err(|_| {

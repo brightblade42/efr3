@@ -26,12 +26,9 @@ use tower_http::services::ServeDir;
 use crate::config::AppConfig;
 use crate::errors::AppError;
 
-use libfr::backend::MatchConfig;
+use libfr::dispatch::{AssetDispatcher, FREngine};
 use libfr::repo::SqlxFrRepository;
-use libfr::service::{
-    runtime::{FREngine, RemoteRuntime},
-    service::FRService,
-};
+use libfr::service::FRService;
 use libtpass::{api::TPassClient, config::TPassConf};
 
 type WResult<T> = Result<T, AppError>;
@@ -107,7 +104,7 @@ fn tpass_routes() -> Router<AppState> {
         //might be better to elimate for security reasons. A tpass passthrough function is probably
         // not the best idea.
         .route("/search", post(tpass_handlers::search_tpass))
-        .fallback(fallback1)
+        .fallback(fallback)
 }
 
 #[tokio::main]
@@ -161,7 +158,7 @@ async fn main() {
     let fr_repo = Arc::new(SqlxFrRepository::new(db_pool.clone()));
 
     //NOTE: not sure about this RemoteRuntime business
-    let remote = match RemoteRuntime::new(config.remote.as_str(), tpass_client.clone()) {
+    let remote = match AssetDispatcher::new(config.remote.as_str(), tpass_client.clone()) {
         Ok(remote) => remote,
         Err(e) => {
             error!("{}", e);
@@ -227,25 +224,14 @@ async fn main() {
     }
 }
 
-async fn fallback1() -> (StatusCode, &'static str) {
-    (StatusCode::NOT_FOUND, "This is not cool bruh. Not found")
+async fn fallback() -> (StatusCode, &'static str) {
+    (
+        StatusCode::NOT_FOUND,
+        "I don't know what you think you're looking for but this ain't it. 404 bruh",
+    )
 }
 
-//reduce the set of config options to only what's needed for matchingq
-impl From<&AppConfig> for MatchConfig {
-    fn from(c: &AppConfig) -> Self {
-        Self {
-            min_match: c.min_match,
-            min_dupe_match: c.min_dupe_match,
-            top_n: 2,
-            top_n_min_match: 0.80,
-            min_quality: c.min_quality,
-            min_acceptability: c.min_acceptability,
-            include_details: false,
-        }
-    }
-}
-
+//TODO: config add set up a folder for test images.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,7 +241,6 @@ mod tests {
     use std::time::Duration;
     use tower::ServiceExt;
 
-    // 1. THE ULTIMATE REAL STATE BUILDER
     async fn build_test_state() -> AppState {
         // Load config (assumes your .env or system env has the TPass test URL)
         let config = AppConfig::from_env().expect("must have an app config"); //_or_else(|_| AppConfig::default());
@@ -277,7 +262,7 @@ mod tests {
         }));
 
         let remote = Arc::new(
-            RemoteRuntime::new("tpass", tpass_client.clone())
+            AssetDispatcher::new("tpass", tpass_client.clone())
                 .expect("remote runtime should initialize"),
         );
 

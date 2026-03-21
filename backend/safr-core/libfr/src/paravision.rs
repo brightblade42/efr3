@@ -1,24 +1,24 @@
-use super::{
+use crate::{
+    dispatch::FRBackend,
+    errors::FRError,
     pvtypes::{
         add_faces_request_from_processed, build_lookup_request, build_process_image_request,
         delete_faces_request, liveness_process_full_image_request, possible_matches_from_lookup,
-        DEFAULT_BUCKETS_LIMIT, DEFAULT_SCALING_FACTOR,
+        timestamp_to_rfc3339, DEFAULT_BUCKETS_LIMIT, DEFAULT_SCALING_FACTOR,
     },
-    FRBackend, FRResult, MatchConfig, Template,
+    repo::EnrollmentMetadataRecord,
+    types::{
+        DeleteFaceResult, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, IDSet, MatchConfig,
+        Template,
+    },
 };
-use crate::{
-    backend::{pvtypes::timestamp_to_rfc3339, IDSet},
-    repo::{EnrollmentMetadataRecord, ProfileRecord},
-    EnrolledFaceInfo,
-};
-use crate::{DeleteFaceResult, FRError, FRIdentity, Face, IDPair};
+
 use bytes::Bytes;
 use libpv::identity_grpc::{
     identity::{self, GetFacesRequest},
     PVIdentityGrpcApi,
 };
 use libpv::proc_grpc::{processor, PVProcGrpcApi};
-use serde_json::json;
 use sqlx::PgPool;
 use tracing::info;
 

@@ -1,6 +1,6 @@
 use crate::{env_parse, env_string, req_env_parse, req_env_string, req_env_threshold};
+use libfr::types::MatchConfig;
 use thiserror::Error;
-
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub engine: String,
@@ -63,6 +63,21 @@ impl AppConfig {
             //main api
             port: env_parse!("EFR_SERVER_PORT", u16, 3000),
         })
+    }
+}
+
+//reduce the set of config options to only what's needed for matchingq
+impl From<&AppConfig> for MatchConfig {
+    fn from(c: &AppConfig) -> Self {
+        Self {
+            min_match: c.min_match,
+            min_dupe_match: c.min_dupe_match,
+            top_n: 2,
+            top_n_min_match: 0.80,
+            min_quality: c.min_quality,
+            min_acceptability: c.min_acceptability,
+            include_details: false,
+        }
     }
 }
 

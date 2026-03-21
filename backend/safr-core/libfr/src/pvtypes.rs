@@ -3,7 +3,10 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use libpv::identity_grpc::identity;
 use libpv::proc_grpc::processor;
 
-use crate::{utils, Face, PossibleMatch, Template};
+use crate::{
+    types::{BoundingBox, Face, Liveness, Point, PossibleMatch, Template},
+    utils,
+};
 
 pub const DEFAULT_SCALING_FACTOR: f32 = 2.0;
 pub const DEFAULT_BUCKETS_LIMIT: i64 = 32;
@@ -113,14 +116,6 @@ pub(crate) fn add_faces_request_from_processed(
     }
 }
 
-pub(crate) fn get_faces_request(fr_id: &str) -> identity::GetFacesRequest {
-    identity::GetFacesRequest {
-        identity_id: fr_id.to_string(),
-        page_token: String::new(),
-        page_size: 100,
-    }
-}
-
 pub(crate) fn delete_faces_request(
     fr_id: &str,
     face_ids: Vec<String>,
@@ -154,8 +149,8 @@ pub(crate) fn possible_matches_from_lookup(
 
 impl From<processor::Face> for Face {
     fn from(pv_face: processor::Face) -> Self {
-        let bbox = pv_face.bounding_box.as_ref().map(|bb| crate::BoundingBox {
-            origin: crate::Point {
+        let bbox = pv_face.bounding_box.as_ref().map(|bb| BoundingBox {
+            origin: Point {
                 x: bb.origin.as_ref().map_or(0.0, |point| point.x.floor()),
                 y: bb.origin.as_ref().map_or(0.0, |point| point.y.floor()),
             },
@@ -181,8 +176,8 @@ impl From<processor::Face> for Face {
 
 impl From<&processor::Face> for Face {
     fn from(pv_face: &processor::Face) -> Self {
-        let bbox = pv_face.bounding_box.as_ref().map(|bb| crate::BoundingBox {
-            origin: crate::Point {
+        let bbox = pv_face.bounding_box.as_ref().map(|bb| BoundingBox {
+            origin: Point {
                 x: bb.origin.as_ref().map_or(0.0, |point| point.x.floor()),
                 y: bb.origin.as_ref().map_or(0.0, |point| point.y.floor()),
             },
@@ -205,7 +200,7 @@ impl From<&processor::Face> for Face {
 fn to_liveness(
     liveness: Option<&processor::Liveness>,
     validness: Option<&processor::Validness>,
-) -> Option<crate::Liveness> {
+) -> Option<Liveness> {
     // 1. Early return if liveness is None.
     let liveness = liveness?;
 
@@ -227,7 +222,7 @@ fn to_liveness(
     let is_live = is_valid && liveness.liveness_probability > 0.5;
 
     // Return the final mapped struct wrapped in Some
-    Some(crate::Liveness { is_live, feedback, score: liveness.liveness_probability })
+    Some(Liveness { is_live, feedback, score: liveness.liveness_probability })
 }
 
 fn default_liveness_validness_parameters(

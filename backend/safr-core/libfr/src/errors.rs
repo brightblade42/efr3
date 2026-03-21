@@ -2,7 +2,7 @@ use crate::repo::RepoError;
 use libpv::errors::PVApiError;
 use libtpass::errors::TPassError;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sqlx::error::Error as SqlxError;
 use thiserror::Error;
 use tracing::error;
@@ -47,41 +47,6 @@ pub enum FRError {
     },
 }
 
-// impl FRError {
-//     pub fn new() -> Self {
-//         Self {
-//             code: 500,
-//             name: "generic_error".to_string(),
-//             message: "could not perform fr operation. this is a catch all.".to_string(),
-//             details: None,
-//         }
-//     }
-//     pub fn with_code(code: u16, name: &str, message: &str) -> Self {
-//         Self { code, name: name.to_string(), message: message.to_string(), details: None }
-//     }
-
-//     pub fn with_details(code: u16, name: &str, message: &str, details: Value) -> Self {
-//         Self { code, name: name.to_string(), message: message.to_string(), details: Some(details) }
-//     }
-// }
-
-// impl Default for FRError {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-
-// #[derive(Debug, Error)]
-// pub enum FaceError {
-//     #[error("Duplicate found: {ext_id} | {fr_id} (score: {score:.4})")]
-//     Duplicate { ext_id: String, fr_id: String, score: f32 },
-
-//     #[error("Quality too low: {quality:.2}")]
-//     PoorQuality { quality: f32 },
-
-//     #[error("Paravision error: {0}")]
-//     Engine(String),
-// }
 impl From<RepoError> for FRError {
     fn from(e: RepoError) -> Self {
         match e {

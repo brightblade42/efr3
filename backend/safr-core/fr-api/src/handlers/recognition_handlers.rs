@@ -5,9 +5,7 @@ use axum::{
 use serde_json::{json, Value};
 
 use crate::{extractors, AppState, WResult};
-use libfr::backend::MatchConfig;
-use libfr::FRIdentity;
-//use libfr::Face;
+use libfr::types::{FRIdentity, Liveness, MatchConfig};
 
 pub async fn quality_check(
     State(app_state): State<AppState>,
@@ -48,7 +46,7 @@ pub async fn liveness_check(
     let quality = face.quality.unwrap_or(0.0);
     let acceptability = face.acceptability.unwrap_or(0.0);
 
-    let liveness = face.liveness.unwrap_or(libfr::Liveness {
+    let liveness = face.liveness.unwrap_or(Liveness {
         is_live: false,
         feedback: vec!["LIVENESS_NOT_AVAILABLE".to_string()],
         score: 0.0,

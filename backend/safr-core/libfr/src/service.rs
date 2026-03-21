@@ -1,16 +1,15 @@
 use crate::{first_or_else, json_str};
 use bytes::Bytes;
-//use libfr::remote::RegistrationPair;
-//use libfr::PossibleMatch;
 
 use crate::{
-    backend::{FRBackend, MatchConfig},
+    dispatch::{AssetDispatcher, AssetStore, FRBackend, FREngine},
     errors::FRError,
-    remote::{RegistrationPair, Remote},
     repo::{EnrollmentMetadataRecord, ProfileRecord, SqlxFrRepository},
-    service::runtime::{FREngine, RemoteRuntime},
-    DeleteFaceResult, EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult,
-    FRIdentity, FRResult, Face, IDPair, PossibleMatch, SearchBy,
+    tpass_types::RegistrationPair,
+    types::{
+        DeleteFaceResult, EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult,
+        FRIdentity, FRResult, Face, IDPair, MatchConfig, PossibleMatch, SearchBy,
+    },
 };
 
 use libtpass::types::TPassProfile;
@@ -24,17 +23,17 @@ use tracing::{debug, error, info, warn};
 #[derive(Clone)]
 pub struct FRService {
     fr_engine: Arc<FREngine>,
-    remote: Arc<RemoteRuntime>,
+    remote: Arc<AssetDispatcher>,
     fr_repo: Arc<SqlxFrRepository>,
 }
 
 impl FRService {
     pub fn new(
         fr_engine: Arc<FREngine>,
-        remote: Arc<RemoteRuntime>,
+        assets: Arc<AssetDispatcher>,
         fr_repo: Arc<SqlxFrRepository>,
     ) -> Self {
-        Self { fr_engine, remote, fr_repo }
+        Self { fr_engine, remote: assets, fr_repo }
     }
 
     fn extract_and_validate_data(

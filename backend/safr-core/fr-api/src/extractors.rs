@@ -1,10 +1,8 @@
-use std::os::unix::raw;
-
 use axum::extract::multipart::Multipart;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use image::ImageFormat;
-use libfr::EnrollData;
+use libfr::types::EnrollData;
 use libtpass::types::NewProfileRequest;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};

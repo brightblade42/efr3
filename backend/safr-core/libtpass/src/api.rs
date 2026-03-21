@@ -642,11 +642,8 @@ impl TPassClient {
         let reg_val = Self::parse_json_value_response(res, &url).await?;
 
         info!("REG: ccode: {} fr_id: {}", &reg_val["cCode"], &reg_val["id"]);
-        //this is weird because we are going to return ok, even if we receive an error here.
-        //when we fix our TPassError debacle we'll revisit this with a better solution.
 
         Ok(reg_val)
-        //Ok(json!({"msg" : "champion!"}))
     }
 
     //rethink errors here

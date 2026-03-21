@@ -2,7 +2,7 @@ use axum::{
     extract::{multipart::Multipart, State},
     Json,
 };
-use libfr::{backend::MatchConfig, EnrollData, EnrollDetails, IDPair};
+use libfr::types::{EnrollData, EnrollDetails, IDPair, MatchConfig};
 use libtpass::types::EditProfileRequest;
 use serde_json::Value;
 
