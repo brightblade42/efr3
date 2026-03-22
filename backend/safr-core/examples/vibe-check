@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common"
 
 IMAGE="${1:-$DEFAULT_IMAGE}"
-LAST_NAME="${2:-Smoke}"
+LAST_NAME="${2:-Martin}"
 require_image "$IMAGE"
 
 echo "== validate-image =="
