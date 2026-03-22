@@ -1,5 +1,5 @@
-use libpv::identity_grpc::{identity, PVIdentityGrpcApi};
-use libpv::proc_grpc::{
+use libfr::pv::pv_grpc::identity_grpc::{identity, PVIdentityGrpcApi};
+use libfr::pv::pv_grpc::proc_grpc::{
     health::{
         health_check_response::ServingStatus, health_client::HealthClient, HealthCheckRequest,
     },

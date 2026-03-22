@@ -1,6 +1,10 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let protoc = protoc_bin_vendored::protoc_bin_path()?;
-    std::env::set_var("PROTOC", protoc);
+    // This environment mutation is required so tonic/prost pick up the vendored protoc binary
+    // during build-time code generation. Recent diagnostics require this call to be explicit.
+    unsafe {
+        std::env::set_var("PROTOC", protoc);
+    }
 
     println!("cargo:rerun-if-changed=proto/proc/processor.proto");
     println!("cargo:rerun-if-changed=proto/proc/processor_service.proto");

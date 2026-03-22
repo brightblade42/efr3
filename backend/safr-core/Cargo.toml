@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
 "fr-api",
- "libpv",
  "cv-cli",
  "libfr"
 ]

@@ -1,4 +1,4 @@
-use crate::paravision::PVBackend;
+use crate::pv::PVBackend;
 use crate::repo::EnrollmentMetadataRecord;
 use crate::types::{
     DeleteFaceResult, EnrollData, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair,

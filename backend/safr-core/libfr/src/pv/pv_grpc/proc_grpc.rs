@@ -4,8 +4,8 @@ use tokio::sync::OnceCell;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 
-use crate::errors::PVApiError;
-use crate::grpc_utils::normalize_endpoint;
+use super::errors::PVApiError;
+use super::grpc_utils::normalize_endpoint;
 
 type PVResult<T> = Result<T, PVApiError>;
 

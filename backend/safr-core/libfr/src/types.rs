@@ -1,7 +1,7 @@
 use bytes::Bytes;
 
 use crate::errors::FRError;
-use crate::pvtypes::timestamp_to_rfc3339;
+use crate::pv::types::timestamp_to_rfc3339;
 use crate::tpass::types::TPassProfile;
 use crate::utils;
 use serde::{Deserialize, Serialize};
@@ -116,8 +116,8 @@ pub struct EnrolledFaceInfo {
     pub quality: f32,
 }
 
-impl From<libpv::identity_grpc::identity::Face> for EnrolledFaceInfo {
-    fn from(f: libpv::identity_grpc::identity::Face) -> Self {
+impl From<crate::pv::pv_grpc::identity_grpc::identity::Face> for EnrolledFaceInfo {
+    fn from(f: crate::pv::pv_grpc::identity_grpc::identity::Face) -> Self {
         Self {
             face_id: f.id,
             fr_id: f.identity_id,

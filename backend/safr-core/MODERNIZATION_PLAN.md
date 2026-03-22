@@ -11,7 +11,7 @@ This plan starts after Clearview removal and PV-only backend consolidation.
 
 ## Current Baseline
 
-- Workspace crates: `fr-api`, `libfr`, `libpv`, `cv-cli`
+- Workspace crates: `fr-api`, `libfr`, `cv-cli`
 - Baseline compile state: `cargo check --workspace` passes.
 - Baseline test state: `cargo test --workspace` passes (minimal test coverage).
 - Current branch/commit baseline for this phase: `wild-idea` after `b6810be`.
@@ -67,8 +67,8 @@ Notes:
 
 - `fr-api/src/main.rs:32` imports `encode_config`/`URL_SAFE` (legacy API).
 - `fr-api/src/main.rs:1019` uses `base64::encode_config(...)`.
-- `libpv/src/lib.rs:75`, `libfr/src/backend/paravision.rs:390`, and multiple lines in `fr-api/src/main.rs` use `base64::encode(...)`.
-- Base64 >=0.21 requires engine-based API (`base64::engine::general_purpose`).
+- Legacy `base64::encode(...)`, `encode_config(...)`, and `URL_SAFE` usage has been removed from active code paths.
+- Current code uses engine-based Base64 APIs (`base64::engine::general_purpose`), primarily in `fr-api/src/extractors.rs`.
 
 ### JWT decode behavior
 

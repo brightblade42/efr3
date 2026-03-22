@@ -17,8 +17,7 @@ pub mod dispatch;
 ///query the remote for personal details as necessary for returning to a user/program at the time
 ///of a positive facial recognition event.
 pub mod errors;
-mod paravision;
-pub mod pvtypes;
+pub mod pv;
 pub mod repo;
 pub mod service;
 pub mod tpass;

@@ -1,11 +1,10 @@
+mod builders;
+pub mod pv_grpc;
+pub(crate) mod types;
+
 use crate::{
     dispatch::FRBackend,
     errors::FRError,
-    pvtypes::{
-        add_faces_request_from_processed, build_lookup_request, build_process_image_request,
-        delete_faces_request, liveness_process_full_image_request, possible_matches_from_lookup,
-        timestamp_to_rfc3339, DEFAULT_BUCKETS_LIMIT, DEFAULT_SCALING_FACTOR,
-    },
     repo::EnrollmentMetadataRecord,
     types::{
         DeleteFaceResult, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, MatchConfig,
@@ -13,12 +12,22 @@ use crate::{
     },
 };
 
-use bytes::Bytes;
-use libpv::identity_grpc::{
-    identity::{self, GetFacesRequest},
-    PVIdentityGrpcApi,
+use self::{
+    builders::{
+        build_add_faces_request, build_delete_faces_request, build_ident_request,
+        build_lookup_request, build_process_image_request, liveness_process_full_image_request,
+    },
+    pv_grpc::{
+        identity_grpc::{
+            identity::{self, GetFacesRequest},
+            PVIdentityGrpcApi,
+        },
+        proc_grpc::{processor, PVProcGrpcApi},
+    },
+    types::{possible_matches_from_lookup, timestamp_to_rfc3339},
 };
-use libpv::proc_grpc::{processor, PVProcGrpcApi};
+
+use bytes::Bytes;
 use sqlx::PgPool;
 use tracing::info;
 
@@ -55,7 +64,6 @@ impl PVBackend {
                     .unwrap_or_default(),
             })
             .filter(|fr_identity| {
-                //make sure the first possible match clears the threshold,if the first doesn't , none of the other will either.
                 fr_identity
                     .possible_matches
                     .first()
@@ -63,52 +71,27 @@ impl PVBackend {
             })
             .collect()
     }
-
-    fn build_ident_request(
-        &self,
-        face: &Face,
-        dupe_match: f32,
-        ext_id: &str,
-    ) -> identity::CreateIdentitiesRequest {
-        let emb = face.template.clone().unwrap().embedding;
-
-        identity::CreateIdentitiesRequest {
-            group_ids: vec![],
-            embeddings: vec![identity::Embedding { embedding: emb }],
-            threshold: dupe_match,
-            model: String::new(),
-            qualities: vec![face.quality.unwrap_or(0.0)],
-            external_ids: vec![ext_id.to_string()],
-            scaling_factor: DEFAULT_SCALING_FACTOR,
-            buckets_limit: DEFAULT_BUCKETS_LIMIT,
-            options: vec![],
-        }
-    }
 }
 
 impl FRBackend for PVBackend {
-    //TODO: maybe kill this
     async fn generate_template(&self, _image: Bytes) -> FRResult<Vec<Template>> {
         Ok(vec![])
     }
 
-    //TODO: maybe kill this
     async fn create_identity(&self, _template: Template, ext_id: &str) -> FRResult<IDPair> {
         Ok(IDPair { fr_id: "abc_123".into(), ext_id: ext_id.into() })
     }
 
-    //not the best name , since it represents 1/2 of the enrollment process
     async fn create_enrollment(
         &self,
         face: &Face,
         config: MatchConfig,
         ext_id: &str,
     ) -> FRResult<IDPair> {
-        let id_req = self.build_ident_request(face, config.min_dupe_match, ext_id);
+        let id_req = build_ident_request(face, config.min_dupe_match, ext_id);
 
         let ident_res = self.ident_api.create_identities(id_req).await?;
 
-        //NOTE: if create identities returns without error, this seems unlikely to not have an identity
         let fr_id = ident_res
             .identities
             .into_iter()
@@ -118,8 +101,6 @@ impl FRBackend for PVBackend {
         Ok(IDPair { fr_id: fr_id.id, ext_id: ext_id.to_string() })
     }
 
-    //TODO: this should come from repo
-    //retrieve some basic count. could be better
     async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
             r#"
@@ -143,8 +124,6 @@ impl FRBackend for PVBackend {
         })
     }
 
-    //TODO: needs work. need a paging strategy
-
     async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         let process_req = if liveness_check {
             liveness_process_full_image_request(image)
@@ -163,11 +142,8 @@ impl FRBackend for PVBackend {
     }
 
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
-        //TODO: not sure this is actually correct
         let process_req = build_process_image_request(image);
         let img_resp = self.proc_api.process_full_image(process_req).await?;
-
-        //we don't want liveness data in the recognize results
 
         let Some((faces, lookup_req)) = build_lookup_request(img_resp, config.top_n) else {
             info!("recognize found no matches");
@@ -182,7 +158,6 @@ impl FRBackend for PVBackend {
             return Ok(vec![]);
         }
 
-        //we get empty liveness objects, remove them from results, just noise.
         let mut idents = self.to_fr_identities(&faces, &lookup_identities, config.min_match);
         for ident in &mut idents {
             ident.face.liveness = None;
@@ -194,7 +169,7 @@ impl FRBackend for PVBackend {
         let process_req = build_process_image_request(image);
         let processed = self.proc_api.process_full_image(process_req).await?;
 
-        let add_req = add_faces_request_from_processed(processed, fr_id.to_string(), 0.0);
+        let add_req = build_add_faces_request(processed, fr_id.to_string(), 0.0);
         let face_resp = self.ident_api.add_faces(add_req).await?;
 
         let face = face_resp
@@ -212,7 +187,7 @@ impl FRBackend for PVBackend {
     }
 
     async fn delete_faces(&self, fr_id: &str, face_ids: Vec<String>) -> FRResult<DeleteFaceResult> {
-        let delete_req = delete_faces_request(fr_id, face_ids);
+        let delete_req = build_delete_faces_request(fr_id, face_ids);
         let res = self.ident_api.delete_faces(delete_req).await?;
 
         Ok(DeleteFaceResult { rows_affected: res.rows_affected })

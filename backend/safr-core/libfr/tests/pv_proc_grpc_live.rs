@@ -1,4 +1,6 @@
-use libpv::proc_grpc::{health::health_check_response::ServingStatus, processor, PVProcGrpcApi};
+use libfr::pv::pv_grpc::proc_grpc::{
+    health::health_check_response::ServingStatus, processor, PVProcGrpcApi,
+};
 use std::env;
 use std::fs;
 use std::io;

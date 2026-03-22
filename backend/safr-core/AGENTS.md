@@ -5,7 +5,7 @@ Guidance for agentic coding agents working in `safr-core` (Rust workspace).
 ## Scope
 
 - This file applies to the workspace rooted at `backend/safr-core`.
-- Crates in this workspace: `fr-api`, `cv-cli`, `libfr`, `libpv`.
+- Crates in this workspace: `fr-api`, `cv-cli`, `libfr`.
 - Primary stack: Rust 2021, Tokio async runtime, Axum API server, SQLx/Postgres, Reqwest.
 
 ## Rule Files (Cursor / Copilot)
@@ -20,7 +20,7 @@ Guidance for agentic coding agents working in `safr-core` (Rust workspace).
 - `fr-api`: Axum HTTP service exposing FR + TPass endpoints.
 - `cv-cli`: CLI helper for enrollment and indexing workflows.
 - `libfr`: orchestration/domain layer; backend trait + implementations.
-- `libpv`: Paravision API client/types/errors.
+- `libfr::pv`: embedded Paravision API client/types/errors module.
 - `libfr::tpass`: embedded TPass API client/config/types/errors module.
 
 ## Build / Lint / Test Commands

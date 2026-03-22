@@ -362,6 +362,7 @@ pub enum CheckState {
     None,
 }
 
+//TODO: these batch names are kinda shit
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BatchCallError {
     pub target: String,
