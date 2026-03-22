@@ -29,7 +29,7 @@ use crate::errors::AppError;
 use libfr::dispatch::{AssetDispatcher, FRDispatcher};
 use libfr::repo::SqlxFrRepository;
 use libfr::service::FRService;
-use libtpass::{api::TPassClient, config::TPassConf};
+use libfr::tpass::{api::TPassClient, config::TPassConf};
 
 type WResult<T> = Result<T, AppError>;
 

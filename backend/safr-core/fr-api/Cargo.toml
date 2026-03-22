@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 libfr = {path = "../libfr"}
-libtpass = {path = "../libtpass"}
 
 rand = "0.8.5"
 axum = { version = "0.8.8", features = ["multipart"] }

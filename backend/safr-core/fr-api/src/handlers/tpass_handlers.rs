@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use crate::{errors::AppError, AppState, WResult};
-use libtpass::{
+use libfr::tpass::{
     errors::TPassError,
     types::{FRAlert, SearchRequest},
 };

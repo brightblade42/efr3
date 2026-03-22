@@ -5,14 +5,12 @@ use crate::{
     dispatch::{AssetDispatcher, AssetStore, FRBackend, FRDispatcher},
     errors::FRError,
     repo::{EnrollmentMetadataRecord, ProfileRecord, SqlxFrRepository},
-    tpass_types::RegistrationPair,
     types::{
         DeleteFaceResult, EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult,
         FRIdentity, FRResult, Face, IDPair, MatchConfig, PossibleMatch, SearchBy,
     },
 };
 
-use libtpass::types::TPassProfile;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -120,8 +118,7 @@ impl FRService {
             }
         };
 
-        //TODO: IDPair and RegistrationPair types are redundant, pick one
-        let reg_pair = RegistrationPair::new(id_pair.fr_id.clone(), id_pair.ext_id.clone());
+        let reg_pair = IDPair::new(id_pair.fr_id.clone(), id_pair.ext_id.clone());
         if let Err(e) = self.assets.register_enrollment(&reg_pair).await {
             self.log_enrollment_error("create_enrollment", details, &e).await; //.await?;
             return Err(e);
@@ -234,18 +231,27 @@ impl FRService {
                 .search_by_ids(SearchBy::ExtIDS(ext_ids.into_iter().collect()), false)
                 .await?;
 
-            // Map remote profiles by their ID for lookup over loops
-            let pmatch_profiles: HashMap<String, TPassProfile> =
-                remote_matches.into_iter().filter_map(|sr| sr.id.zip(sr.details)).collect();
+            // Map remote details by their ID for lookup over loops
+            let pmatch_profiles: HashMap<String, Value> = remote_matches
+                .into_iter()
+                .filter_map(|sr| {
+                    let id = sr.id?;
+                    let details = sr.details?;
+                    let value = match details {
+                        crate::types::RemoteDetails::TPass(profile) => {
+                            serde_json::to_value(profile).ok()?
+                        }
+                    };
+                    Some((id, value))
+                })
+                .collect();
 
             // Patch the identities with the fresh remote data
             for possible_match in fr_identities.iter_mut().flat_map(|fi| &mut fi.possible_matches) {
                 let key = possible_match.ext_id.trim();
 
-                if let Some(profile) = pmatch_profiles.get(key) {
-                    if let Ok(v) = serde_json::to_value(profile) {
-                        possible_match.details = Some(v);
-                    }
+                if let Some(details) = pmatch_profiles.get(key) {
+                    possible_match.details = Some(details.clone());
                 }
             }
         }

@@ -21,10 +21,6 @@ impl TPassConf {
         let url = env::var("EFR_REMOTE_URL").expect("TPASS_URL env var");
         let pwd = env::var("EFR_REMOTE_PWD").expect("TPASS_PWD env var");
 
-        // let user = env::var("TPASS_USER").expect("TPASS_USER env var");
-        // let url = env::var("TPASS_URL").expect("TPASS_URL env var");
-        // let pwd = env::var("TPASS_PWD").expect("TPASS_PWD env var");
-
         Self { url, user, pwd }
     }
 }

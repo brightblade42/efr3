@@ -2,11 +2,55 @@ use bytes::Bytes;
 
 use crate::errors::FRError;
 use crate::pvtypes::timestamp_to_rfc3339;
+use crate::tpass::types::TPassProfile;
 use crate::utils;
-use libtpass::types::TPassProfile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub type FRResult<T> = Result<T, FRError>;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "remote", content = "profile")]
+pub enum RemoteDetails {
+    TPass(TPassProfile),
+}
+
+impl RemoteDetails {
+    pub fn as_tpass(&self) -> Option<&TPassProfile> {
+        match self {
+            Self::TPass(profile) => Some(profile),
+        }
+    }
+
+    pub fn into_tpass(self) -> Option<TPassProfile> {
+        match self {
+            Self::TPass(profile) => Some(profile),
+        }
+    }
+
+    pub fn ext_id(&self) -> Option<String> {
+        match self {
+            Self::TPass(profile) => profile.ccode.map(|id| id.to_string()),
+        }
+    }
+
+    pub fn first_name(&self) -> Option<&str> {
+        match self {
+            Self::TPass(profile) => profile.f_name.as_deref(),
+        }
+    }
+
+    pub fn last_name(&self) -> Option<&str> {
+        match self {
+            Self::TPass(profile) => profile.l_name.as_deref(),
+        }
+    }
+
+    pub fn img_url(&self) -> Option<&str> {
+        match self {
+            Self::TPass(profile) => profile.img_url.as_deref(),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RecognizeOpts {
@@ -40,10 +84,23 @@ pub enum SearchBy {
     ExtIDS(Vec<String>),
 }
 
+#[derive(Debug)]
+pub struct SearchResult {
+    pub image: Option<Image>,
+    pub id: Option<String>,
+    pub details: Option<RemoteDetails>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IDPair {
     pub fr_id: String,
     pub ext_id: String,
+}
+
+impl IDPair {
+    pub fn new(fr_id: String, ext_id: String) -> Self {
+        Self { fr_id, ext_id }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -165,10 +222,6 @@ pub struct Liveness {
     pub score: f32,
 }
 
-pub struct IDSet {
-    pub ext_id: String,
-    pub fr_id: String,
-}
 #[derive(Copy, Clone)]
 pub struct MatchConfig {
     pub min_match: f32,

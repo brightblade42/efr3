@@ -11,7 +11,7 @@ This plan starts after Clearview removal and PV-only backend consolidation.
 
 ## Current Baseline
 
-- Workspace crates: `fr-api`, `libfr`, `libpv`, `libtpass`, `cv-cli`
+- Workspace crates: `fr-api`, `libfr`, `libpv`, `cv-cli`
 - Baseline compile state: `cargo check --workspace` passes.
 - Baseline test state: `cargo test --workspace` passes (minimal test coverage).
 - Current branch/commit baseline for this phase: `wild-idea` after `b6810be`.
@@ -72,13 +72,13 @@ Notes:
 
 ### JWT decode behavior
 
-- `libtpass/src/tokens.rs:2` imports `dangerous_insecure_decode`.
-- `libtpass/src/tokens.rs:54` decodes without signature verification.
+- `libfr/src/tpass/tokens.rs:2` imports `dangerous_insecure_decode`.
+- `libfr/src/tpass/tokens.rs:54` decodes without signature verification.
 - Jsonwebtoken 10 has API and feature changes; this path needs compatibility adapter work.
 
 ### Reqwest/TLS behavior
 
-- `libtpass/src/api.rs:58` and `libtpass/src/api.rs:59` build client with `.danger_accept_invalid_certs(true)`.
+- `libfr/src/tpass/api.rs:58` and `libfr/src/tpass/api.rs:59` build client with `.danger_accept_invalid_certs(true)`.
 - Reqwest 0.13 introduces changes around default TLS/features; preserve this behavior behind explicit compatibility settings.
 
 ### SQLx future incompatibility
@@ -161,7 +161,7 @@ Risk:
 
 These improvements reduce migration risk and runtime surprises:
 
-1. Replace panic paths in runtime code (`libtpass/src/api.rs:412`).
+1. Replace panic paths in runtime code (`libfr/src/tpass/api.rs:412`).
 2. Reduce `unwrap`/`expect` in request handlers and remote client flows.
 3. Avoid holding mutex guards across network awaits in hot paths.
 4. Split `fr-api/src/main.rs` into route modules + service layer for easier upgrades.

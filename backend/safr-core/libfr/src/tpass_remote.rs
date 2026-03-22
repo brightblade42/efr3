@@ -1,8 +1,12 @@
 use crate::dispatch::AssetStore;
-use crate::tpass_types::{RegistrationPair, SearchResult};
-use crate::types::{EnrollData, EnrollDetails, FRResult, Image, SearchBy};
-use libtpass::{api::TPassClient, api::TResult, errors::TPassError};
-use tracing::{error, info, warn};
+use crate::tpass::{
+    api::{TPassClient, TResult},
+    errors::TPassError,
+};
+use crate::types::{
+    EnrollData, EnrollDetails, FRResult, IDPair, Image, RemoteDetails, SearchBy, SearchResult,
+};
+use tracing::{info, warn};
 
 async fn handle_name_search(
     client: &TPassClient,
@@ -28,7 +32,7 @@ async fn handle_name_search(
     Ok(Some(SearchResult {
         image: None,
         id: item.ccode.map(|id| id.to_string()),
-        details: Some(item),
+        details: Some(RemoteDetails::TPass(item)),
     }))
 }
 
@@ -50,14 +54,14 @@ async fn handle_ext_id_search(client: &TPassClient, ext_id: &str) -> TResult<Opt
     Ok(Some(SearchResult {
         image: None,
         id: Some(ccode.to_string()),
-        details: Some(item),
+        details: Some(RemoteDetails::TPass(item)),
     }))
 }
 
 //use ::{RegistrationPair, SearchResult};
 
 impl AssetStore for TPassClient {
-    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
+    async fn register_enrollment(&self, reg_pair: &IDPair) -> FRResult<()> {
         //TODO: reconstruct enrollment from old TPass functions.
         let ccode = reg_pair.ext_id.parse::<u64>().map_err(|_| {
             TPassError::Generic(format!(
@@ -129,7 +133,7 @@ impl AssetStore for TPassClient {
 
                         let sr = SearchResult {
                             image: Some(Image { bytes: Some(image), url: img_url }),
-                            details: Some(prof.clone()),
+                            details: Some(RemoteDetails::TPass(prof.clone())),
                             id: prof.ccode.map(|id| id.to_string()),
                         };
 
@@ -172,7 +176,7 @@ impl AssetStore for TPassClient {
         let url = sr
             .as_ref()
             .and_then(|res| res.details.as_ref())
-            .and_then(|res| res.img_url.clone());
+            .and_then(|details| details.img_url().map(str::to_string));
         //
         // If we got an image URL and we want the image, download it
         let p_img = match (include_img, url) {
@@ -241,7 +245,11 @@ impl AssetStore for TPassClient {
             };
 
             // details is moved, no cloning required!
-            out.push(SearchResult { image, id: ccode, details: Some(details) });
+            out.push(SearchResult {
+                image,
+                id: ccode,
+                details: Some(RemoteDetails::TPass(details)),
+            });
         }
 
         Ok(out)

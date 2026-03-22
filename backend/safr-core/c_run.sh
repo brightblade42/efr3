@@ -15,5 +15,5 @@ cargo build -p fr-api
 #FR_BACKEND="paravision" \
 #FR_REMOTE="tpass" \
 #FRAPI_PORT="3000" \
-RUST_LOG="info,fr_api=info,libfr=info,libpv=info,libtpass=info" \
+RUST_LOG="info,fr_api=info,libfr=info,libpv=info" \
 cargo run -p fr-api

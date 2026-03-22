@@ -4,8 +4,5 @@ members = [
 "fr-api",
  "libpv",
  "cv-cli",
- "libtpass",
  "libfr"
 ]
-
-

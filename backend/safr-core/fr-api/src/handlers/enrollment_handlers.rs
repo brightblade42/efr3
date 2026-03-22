@@ -237,6 +237,10 @@ pub async fn build_enroll_data(
         AppError::Generic("Could not load profile details. enrollment failed".to_string())
     })?;
 
+    let details = details.into_tpass().ok_or_else(|| {
+        AppError::Generic("Could not convert remote profile details into TPass profile".to_string())
+    })?;
+
     Ok(EnrollData { image: Some(img), details: Some(EnrollDetails::TPass(details)) })
 }
 
@@ -260,13 +264,13 @@ pub struct EnrollCommand {
 }
 
 impl From<EnrollCommand> for EnrollData {
-    fn from(value: EnrollCommand) -> Self {
+    fn from(_value: EnrollCommand) -> Self {
         todo!()
     }
 }
 
 impl From<&EnrollCommand> for EnrollData {
-    fn from(value: &EnrollCommand) -> Self {
+    fn from(_value: &EnrollCommand) -> Self {
         todo!()
     }
 }
@@ -403,7 +407,7 @@ pub async fn delete_face_v1(
         ));
     }
 
-    let res = app_state.fr_service.delete_faces(&req.fr_id, vec![req.face_id.clone()]).await?;
+    let _res = app_state.fr_service.delete_faces(&req.fr_id, vec![req.face_id.clone()]).await?;
 
     Ok(Json(req))
 }

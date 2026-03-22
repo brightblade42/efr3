@@ -21,8 +21,8 @@ mod paravision;
 pub mod pvtypes;
 pub mod repo;
 pub mod service;
-mod tpass;
-mod tpass_types;
+pub mod tpass;
+mod tpass_remote;
 pub mod types;
 
 pub mod utils {

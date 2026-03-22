@@ -1,6 +1,6 @@
 use crate::repo::RepoError;
+use crate::tpass::errors::TPassError;
 use libpv::errors::PVApiError;
-use libtpass::errors::TPassError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::error::Error as SqlxError;

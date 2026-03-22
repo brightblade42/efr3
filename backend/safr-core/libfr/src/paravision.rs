@@ -8,7 +8,7 @@ use crate::{
     },
     repo::EnrollmentMetadataRecord,
     types::{
-        DeleteFaceResult, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, IDSet, MatchConfig,
+        DeleteFaceResult, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, MatchConfig,
         Template,
     },
 };
@@ -93,8 +93,8 @@ impl FRBackend for PVBackend {
     }
 
     //TODO: maybe kill this
-    async fn create_identity(&self, _template: Template, ext_id: &str) -> FRResult<IDSet> {
-        Ok(IDSet { fr_id: "abc_123".into(), ext_id: ext_id.into() })
+    async fn create_identity(&self, _template: Template, ext_id: &str) -> FRResult<IDPair> {
+        Ok(IDPair { fr_id: "abc_123".into(), ext_id: ext_id.into() })
     }
 
     //not the best name , since it represents 1/2 of the enrollment process

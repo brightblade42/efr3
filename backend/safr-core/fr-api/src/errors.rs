@@ -3,7 +3,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use libtpass::errors::TPassError;
+use libfr::tpass::errors::TPassError;
 use reqwest::Error;
 use serde::{Deserialize, Serialize};
 

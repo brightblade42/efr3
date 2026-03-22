@@ -5,7 +5,7 @@ Guidance for agentic coding agents working in `safr-core` (Rust workspace).
 ## Scope
 
 - This file applies to the workspace rooted at `backend/safr-core`.
-- Crates in this workspace: `fr-api`, `cv-cli`, `libfr`, `libpv`, `libtpass`.
+- Crates in this workspace: `fr-api`, `cv-cli`, `libfr`, `libpv`.
 - Primary stack: Rust 2021, Tokio async runtime, Axum API server, SQLx/Postgres, Reqwest.
 
 ## Rule Files (Cursor / Copilot)
@@ -21,7 +21,7 @@ Guidance for agentic coding agents working in `safr-core` (Rust workspace).
 - `cv-cli`: CLI helper for enrollment and indexing workflows.
 - `libfr`: orchestration/domain layer; backend trait + implementations.
 - `libpv`: Paravision API client/types/errors.
-- `libtpass`: TPass API client/config/types/errors.
+- `libfr::tpass`: embedded TPass API client/config/types/errors module.
 
 ## Build / Lint / Test Commands
 
@@ -77,8 +77,8 @@ Note: this repo currently has little/no committed Rust test coverage, so you may
   - gRPC endpoint mapping: `PV_IDENT_URL` -> identity service (default `:5656`), `PV_PROC_URL` -> processor service (default `:50051`)
   - `SAFR_DB_ADDR`, `SAFR_DB_PORT`
   - `MIN_MATCH`, `MIN_DUPE_MATCH`, `MIN_QUALITY`, `USE_TLS`, `CERT_DIR`
-- `libtpass` config requires env vars and will fail fast if missing:
-  - `TPASS_URL`, `TPASS_USER`, `TPASS_PWD`
+- Embedded `libfr::tpass` config requires env vars and will fail fast if missing:
+  - `EFR_REMOTE_URL`, `EFR_REMOTE_USER`, `EFR_REMOTE_PWD`
 
 ## Code Style Guidelines
 

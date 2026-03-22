@@ -2,8 +2,8 @@ use axum::extract::multipart::Multipart;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use image::ImageFormat;
+use libfr::tpass::types::NewProfileRequest;
 use libfr::types::EnrollData;
-use libtpass::types::NewProfileRequest;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
 
@@ -148,9 +148,7 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
 
                 let enroll_det = serde_json::from_str(&details);
                 debug!("{:?}", &enroll_det);
-                if let Ok(d) = enroll_det {
-                    enroll_data.details = Some(d);
-                }
+                enroll_data.details = enroll_det.ok();
             }
             _ => {}
         }

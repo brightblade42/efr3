@@ -1,8 +1,8 @@
-use crate::config::TPassConf;
-use crate::errors::TPassError;
-use crate::tokens::{TPassToken, JWT};
-use crate::types::*;
-use crate::types::{
+use super::config::TPassConf;
+use super::errors::TPassError;
+use super::tokens::{TPassToken, JWT};
+use super::types::*;
+use super::types::{
     AttendanceKind, AttendanceResponse, AttendanceStatus, CheckState, DeleteProfileRequest,
     EditProfileRequest, KioskRec, LastAttendanceResponse, NewProfileRequest, NewProfileResponse,
     SearchRequest, TPassSearchType,

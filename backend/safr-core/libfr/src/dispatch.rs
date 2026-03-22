@@ -1,20 +1,19 @@
 use crate::paravision::PVBackend;
 use crate::repo::EnrollmentMetadataRecord;
-use crate::tpass_types::{RegistrationPair, SearchResult};
 use crate::types::{
-    DeleteFaceResult, EnrollData, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair, IDSet,
-    MatchConfig, SearchBy, Template,
+    DeleteFaceResult, EnrollData, EnrolledFaceInfo, FRIdentity, FRResult, Face, IDPair,
+    MatchConfig, SearchBy, SearchResult, Template,
 };
 
+use crate::tpass::api::TPassClient;
 use bytes::Bytes;
-use libtpass::api::TPassClient;
 use sqlx::PgPool;
 use std::sync::Arc;
 
 //some external api based system that holds information about the people that need recognizing.
 #[allow(async_fn_in_trait)]
 pub trait AssetStore: Send + Sync {
-    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()>;
+    async fn register_enrollment(&self, id_pair: &IDPair) -> FRResult<()>;
     async fn unregister_enrollment(&self) -> FRResult<()>;
     async fn search(&self, enroll_data: &EnrollData) -> FRResult<Vec<SearchResult>>;
     async fn search_one(
@@ -47,10 +46,10 @@ impl AssetDispatcher {
 }
 
 impl AssetStore for AssetDispatcher {
-    async fn register_enrollment(&self, reg_pair: &RegistrationPair) -> FRResult<()> {
+    async fn register_enrollment(&self, id_pair: &IDPair) -> FRResult<()> {
         match self {
-            Self::TPass(client) => client.register_enrollment(reg_pair).await,
-            Self::Local(client) => client.register_enrollment(reg_pair).await,
+            Self::TPass(client) => client.register_enrollment(id_pair).await,
+            Self::Local(client) => client.register_enrollment(id_pair).await,
         }
     }
 
@@ -106,7 +105,7 @@ pub trait FRBackend: Send + Sync {
     async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>>;
 
     async fn generate_template(&self, image: Bytes) -> FRResult<Vec<Template>>;
-    async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet>;
+    async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDPair>;
 
     async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo>;
     async fn delete_faces(&self, fr_id: &str, face_ids: Vec<String>) -> FRResult<DeleteFaceResult>;
@@ -157,7 +156,7 @@ impl FRBackend for FRDispatcher {
         }
     }
 
-    async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDSet> {
+    async fn create_identity(&self, template: Template, ext_id: &str) -> FRResult<IDPair> {
         match self {
             Self::Paravision(backend) => backend.create_identity(template, ext_id).await,
         }
