@@ -268,7 +268,7 @@ impl FRService {
                     let id = sr.id?;
                     let details = sr.details?;
                     let value = match details {
-                        crate::types::RemoteDetails::TPass(profile) => {
+                        crate::types::AssetDetails::TPass(profile) => {
                             serde_json::to_value(profile).ok()?
                         }
                     };

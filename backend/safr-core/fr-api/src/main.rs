@@ -59,7 +59,6 @@ type WResult<T> = Result<T, AppError>;
 struct AppState {
     fr_service: Arc<FRService>,
     fr_repo: Arc<SqlxFrRepository>,
-    //tpass_client: Arc<TPassClient>,
     config: AppConfig,
 }
 
@@ -181,9 +180,7 @@ async fn main() {
             return;
         }
     };
-    let remote = Arc::new(remote);
 
-    //our fr backend
     let fr_engine = match FRDispatcher::new(
         config.engine.as_str(),
         format!("{}:{}", config.proc_addr, config.proc_port),
@@ -203,12 +200,13 @@ async fn main() {
         config.remote.as_str(),
     );
 
-    let fr_service = Arc::new(FRService::new(Arc::new(fr_engine), remote, fr_repo.clone()));
+    //should we only work through fr_service? there are still some escape hatches.
+    let fr_service =
+        Arc::new(FRService::new(Arc::new(fr_engine), Arc::new(remote), fr_repo.clone()));
 
     let app_state = AppState {
         fr_service,
         fr_repo,
-        // tpass_client,
         config: config.clone(), //some tpass specific calls
     };
 

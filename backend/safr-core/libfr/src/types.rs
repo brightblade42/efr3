@@ -15,14 +15,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub type FRResult<T> = Result<T, FRError>;
 
-/// Remote-profile details attached to a recognition match or search result.
+/// Asset profile details attached to a recognition match or search result.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "remote", content = "profile")]
-pub enum RemoteDetails {
+#[serde(tag = "asset", content = "profile")]
+pub enum AssetDetails {
     TPass(TPassProfile),
 }
 
-impl RemoteDetails {
+impl AssetDetails {
     pub fn as_tpass(&self) -> Option<&TPassProfile> {
         match self {
             Self::TPass(profile) => Some(profile),
@@ -102,7 +102,7 @@ pub enum SearchBy {
 pub struct SearchResult {
     pub image: Option<Image>,
     pub id: Option<String>,
-    pub details: Option<RemoteDetails>,
+    pub details: Option<AssetDetails>,
 }
 
 /// Mapping between an FR identity id and an external person identifier.

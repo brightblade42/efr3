@@ -59,7 +59,7 @@ pub mod pv;
 pub mod repo;
 pub mod service;
 pub mod tpass;
-mod tpass_remote;
+mod tpass_asset_store;
 pub mod types;
 
 pub mod utils {

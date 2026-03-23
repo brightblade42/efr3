@@ -6,7 +6,7 @@ use crate::tpass::{
     types::{AttendanceKind, AttendanceStatus},
 };
 use crate::types::{
-    EnrollData, EnrollDetails, FRResult, IDPair, Image, RemoteDetails, SearchBy, SearchResult,
+    AssetDetails, EnrollData, EnrollDetails, FRResult, IDPair, Image, SearchBy, SearchResult,
 };
 use tracing::{info, warn};
 
@@ -34,7 +34,7 @@ async fn handle_name_search(
     Ok(Some(SearchResult {
         image: None,
         id: item.ccode.map(|id| id.to_string()),
-        details: Some(RemoteDetails::TPass(item)),
+        details: Some(AssetDetails::TPass(item)),
     }))
 }
 
@@ -56,7 +56,7 @@ async fn handle_ext_id_search(client: &TPassClient, ext_id: &str) -> TResult<Opt
     Ok(Some(SearchResult {
         image: None,
         id: Some(ccode.to_string()),
-        details: Some(RemoteDetails::TPass(item)),
+        details: Some(AssetDetails::TPass(item)),
     }))
 }
 
@@ -149,7 +149,7 @@ impl AssetStore for TPassClient {
 
                         let sr = SearchResult {
                             image: Some(Image { bytes: Some(image), url: img_url }),
-                            details: Some(RemoteDetails::TPass(prof.clone())),
+                            details: Some(AssetDetails::TPass(prof.clone())),
                             id: prof.ccode.map(|id| id.to_string()),
                         };
 
@@ -264,7 +264,7 @@ impl AssetStore for TPassClient {
             out.push(SearchResult {
                 image,
                 id: ccode,
-                details: Some(RemoteDetails::TPass(details)),
+                details: Some(AssetDetails::TPass(details)),
             });
         }
 
