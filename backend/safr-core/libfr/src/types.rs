@@ -1,3 +1,10 @@
+//! Core domain and transport types shared across the SAFR backend.
+//!
+//! These types intentionally span several boundaries:
+//! - API input normalized by `fr-api`
+//! - workflow input/output used by [`crate::service::FRService`]
+//! - backend and remote integration payloads translated into stable internal models
+
 use bytes::Bytes;
 
 use crate::errors::FRError;
@@ -8,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub type FRResult<T> = Result<T, FRError>;
 
+/// Remote-profile details attached to a recognition match or search result.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "remote", content = "profile")]
 pub enum RemoteDetails {
@@ -52,16 +60,20 @@ impl RemoteDetails {
     }
 }
 
+/// Options that control match enrichment in recognition responses.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RecognizeOpts {
     pub include_details: bool,
 }
-//image and details are sent in a request using multipart formdata which we parse
+
+/// Enrollment input normalized from multipart form data.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EnrollData {
     pub image: Option<Bytes>,
     pub details: Option<EnrollDetails>,
 }
+
+/// Supported enrollment detail sources.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "kind")] //i like kind more than type. type gets in the way.
 pub enum EnrollDetails {
@@ -75,6 +87,7 @@ pub enum EnrollDetails {
 //     Binary(Bytes),
 // }
 
+/// Lookup strategies supported by remote search operations.
 #[derive(Debug)]
 pub enum SearchBy {
     //Name { first_name: String, last_name: String },
@@ -84,6 +97,7 @@ pub enum SearchBy {
     ExtIDS(Vec<String>),
 }
 
+/// Search result returned from the remote system.
 #[derive(Debug)]
 pub struct SearchResult {
     pub image: Option<Image>,
@@ -91,6 +105,7 @@ pub struct SearchResult {
     pub details: Option<RemoteDetails>,
 }
 
+/// Mapping between an FR identity id and an external person identifier.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IDPair {
     pub fr_id: String,
@@ -103,11 +118,13 @@ impl IDPair {
     }
 }
 
+/// Result returned after a successful enrollment delete request.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EnrollmentDeleteResult {
     pub fr_id: String,
 }
 
+/// Metadata about one stored face belonging to an identity.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EnrolledFaceInfo {
     pub face_id: String,
@@ -127,14 +144,13 @@ impl From<crate::pv::pv_grpc::identity_grpc::identity::Face> for EnrolledFaceInf
     }
 }
 
-//NOTE: rows_affected is a bad name.
+/// Result returned after deleting one or more stored faces.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeleteFaceResult {
     pub rows_affected: i32,
 }
 
-//recognition types
-
+/// One possible identity match returned by the FR backend.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PossibleMatch {
     pub fr_id: String,
@@ -148,6 +164,7 @@ pub struct PossibleMatch {
 }
 
 impl PossibleMatch {
+    /// Construct a match with an automatically derived percentage field.
     pub fn new(fr_id: String, score: f32) -> Self {
         Self {
             fr_id,
@@ -158,37 +175,41 @@ impl PossibleMatch {
         }
     }
 
+    /// Recompute the cached percentage representation after changing `score`.
     pub fn refresh_score_percentage(&mut self) {
         self.score_pct = utils::score_to_percentage(self.score);
     }
 }
 
+/// Minimal details payload used by some legacy API compatibility flows.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MinDetails {
     pub fr_id: String,
     pub ext_id: String,
     pub details: Value,
 }
-///A combination of a set of attribute for a givent face and
-///a possible list of matches from most likely to least likely
+/// One detected face plus its ranked candidate identity matches.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FRIdentity {
     pub face: Face,
     pub possible_matches: Vec<PossibleMatch>,
 }
 
+/// Cartesian point used for face bounding boxes.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
 }
 
+/// Bounding box describing the detected face position in an image.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BoundingBox {
     pub origin: Point,
     pub width: f32,
     pub height: f32,
 }
+/// Face-level attributes returned from processor and recognition operations.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Face {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -204,17 +225,20 @@ pub struct Face {
     //pub extra: Option<Stuff>
 }
 
+/// Embedding template returned by an FR backend.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Template {
     pub embedding: Vec<f32>,
 }
 
+/// Image payload used when remote lookups also include a person photo.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Image {
     pub url: Option<String>, //url or file path. should this be a path str?
     pub bytes: Option<Bytes>,
 }
 
+/// Liveness data returned when supported by the FR backend.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Liveness {
     pub is_live: bool,
@@ -222,6 +246,7 @@ pub struct Liveness {
     pub score: f32,
 }
 
+/// Recognition and enrollment thresholds used across the service layer.
 #[derive(Copy, Clone)]
 pub struct MatchConfig {
     pub min_match: f32,

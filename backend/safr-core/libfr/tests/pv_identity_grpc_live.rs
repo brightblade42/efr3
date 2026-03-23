@@ -1,17 +1,18 @@
-use libfr::pv::pv_grpc::identity_grpc::{identity, PVIdentityGrpcApi};
+use libfr::pv::pv_grpc::identity_grpc::{PVIdentityGrpcApi, identity};
 use libfr::pv::pv_grpc::proc_grpc::{
+    PVProcGrpcApi,
     health::{
-        health_check_response::ServingStatus, health_client::HealthClient, HealthCheckRequest,
+        HealthCheckRequest, health_check_response::ServingStatus, health_client::HealthClient,
     },
-    processor, PVProcGrpcApi,
+    processor,
 };
 use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tonic::transport::Endpoint;
 use tonic::Request;
+use tonic::transport::Endpoint;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -352,11 +353,7 @@ fn collect_jpeg_images(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
 
 fn normalize_endpoint(endpoint: &str) -> String {
     let endpoint = endpoint.trim().trim_end_matches('/');
-    if endpoint.contains("://") {
-        endpoint.to_string()
-    } else {
-        format!("http://{}", endpoint)
-    }
+    if endpoint.contains("://") { endpoint.to_string() } else { format!("http://{}", endpoint) }
 }
 
 fn synthetic_template(seed: f64) -> FaceTemplate {

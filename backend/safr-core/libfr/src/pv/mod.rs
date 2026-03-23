@@ -1,3 +1,13 @@
+//! Paravision-backed FR engine integration.
+//!
+//! This module adapts Paravision processor and identity gRPC APIs to the internal
+//! [`crate::dispatch::FRBackend`] trait. It is responsible for converting raw gRPC payloads into
+//! stable `libfr` types such as [`crate::types::Face`], [`crate::types::FRIdentity`], and
+//! [`crate::types::EnrolledFaceInfo`].
+//!
+//! The backend owns only FR-engine concerns. Local persistence and remote profile/attendance work
+//! remain outside this module.
+
 mod builders;
 pub mod pv_grpc;
 pub(crate) mod types;
@@ -19,10 +29,10 @@ use self::{
     },
     pv_grpc::{
         identity_grpc::{
-            identity::{self, GetFacesRequest},
             PVIdentityGrpcApi,
+            identity::{self, GetFacesRequest},
         },
-        proc_grpc::{processor, PVProcGrpcApi},
+        proc_grpc::{PVProcGrpcApi, processor},
     },
     types::{possible_matches_from_lookup, timestamp_to_rfc3339},
 };
@@ -31,6 +41,7 @@ use bytes::Bytes;
 use sqlx::PgPool;
 use tracing::info;
 
+/// Paravision implementation of the [`crate::dispatch::FRBackend`] trait.
 #[derive(Clone)]
 pub struct PVBackend {
     proc_api: PVProcGrpcApi,
@@ -39,6 +50,7 @@ pub struct PVBackend {
 }
 
 impl PVBackend {
+    /// Construct a Paravision backend from processor and identity endpoints plus a DB pool.
     pub fn new(proc_url: String, ident_url: String, db: PgPool) -> Self {
         Self {
             proc_api: PVProcGrpcApi::new(proc_url),

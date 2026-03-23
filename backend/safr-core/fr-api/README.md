@@ -2,8 +2,17 @@
 
 Axum service exposing facial-recognition and related TPass integration endpoints.
 
-## API contract
+## Documentation
 
-For `/fr/v2` request/response and error envelope details, see:
+For the current documentation set, see:
 
-- `fr-api/API_CONTRACT.md`
+- `../docs/fr-api.md`
+- `../docs/fr-api-reference.md`
+- `../docs/fr-api-workflows.md`
+- `../docs/configuration.md`
+
+For generated Rust API docs:
+
+```bash
+cargo doc --workspace --no-deps
+```

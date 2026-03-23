@@ -1,17 +1,27 @@
+//! API error translation and response shaping.
+//!
+//! `fr-api` distinguishes between two broad error classes:
+//! - transport/extractor failures surfaced by Axum as status-code errors such as `400` or `422`
+//! - application/domain failures represented as JSON error envelopes, often returned with HTTP `200`
+//!
+//! That second behavior is intentional in this codebase and should be preserved unless the public
+//! API contract is being changed deliberately.
+
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use libfr::tpass::errors::TPassError;
 use reqwest::Error;
 use serde::{Deserialize, Serialize};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 //----- A better error strategy
 //top level, our domain specific errors will be transformed to AppErrors for retunning to users
 use libfr::errors::FRError;
 
+/// API-layer error type used by handlers.
 #[derive(Debug)]
 pub enum AppError {
     InvalidInput(String), //for very simple messages or an error we're not sure how to format yet.
@@ -156,8 +166,9 @@ impl From<reqwest::Error> for AppError {
     }
 }
 
-//NOTE: We return 200 on our errors if they are api based. Opinion: Json apis are not actually REST and HTTP is just a transport.
-//We should stop pretending like we're following HTTP properly. . Let's let it go.
+/// Convert application errors into HTTP responses.
+///
+/// Domain and business failures intentionally map to HTTP `200` with a structured JSON envelope.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error) = match self {
@@ -181,7 +192,7 @@ impl IntoResponse for AppError {
     }
 }
 
-//a general format for returning most api based errors to client.
+/// Standard JSON error envelope returned by business-level API failures.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StandardError {
     pub code: String,

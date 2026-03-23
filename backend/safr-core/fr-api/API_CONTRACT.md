@@ -2,6 +2,12 @@
 
 This document captures the current request/response contract for migrated `/fr/v2` endpoints.
 
+Note: the canonical human-facing API docs now live in:
+
+- `../docs/fr-api.md`
+- `../docs/fr-api-reference.md`
+- `../docs/fr-api-workflows.md`
+
 ## Scope
 
 - Active API namespace: `/fr/v2`

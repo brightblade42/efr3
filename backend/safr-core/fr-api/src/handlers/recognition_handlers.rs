@@ -1,10 +1,10 @@
 use axum::{
-    extract::{multipart::Multipart, State},
     Json,
+    extract::{State, multipart::Multipart},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::{extractors, AppState, WResult};
+use crate::{AppState, WResult, extractors};
 use libfr::types::{FRIdentity, Liveness, MatchConfig};
 
 pub async fn quality_check(

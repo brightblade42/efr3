@@ -1,5 +1,13 @@
+//! Multipart extraction helpers for the HTTP API.
+//!
+//! The public API accepts a mix of JSON and multipart requests. These helpers normalize multipart
+//! payloads into typed request structs used by handlers and `libfr`:
+//! - image uploads may be sent as raw bytes or base64-encoded text
+//! - multipart JSON fields such as `opts`, `details`, and `profile` are deserialized in-place
+//! - image bytes are validated up front so handlers can rely on downstream invariants
+
 use axum::extract::multipart::Multipart;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use bytes::Bytes;
 use image::ImageFormat;
 use libfr::tpass::types::NewProfileRequest;
@@ -12,6 +20,7 @@ use crate::errors::AppError::Generic;
 
 type WResult<T> = Result<T, AppError>;
 
+/// Optional recognition controls accepted by multipart recognition-style endpoints.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct RecognizeOpts {
@@ -36,25 +45,28 @@ impl Default for RecognizeOpts {
     }
 }
 
+/// Parsed multipart payload for endpoints that accept an image plus recognition options.
 #[derive(Debug, Clone)]
 pub struct RecognizeFormData {
     pub image: Option<Bytes>,
     pub opts: Option<RecognizeOpts>,
 }
 
+/// Parsed multipart payload for the add-face endpoint.
 #[derive(Debug, Clone)]
 pub struct AddFaceFormData {
     pub image: Option<Bytes>,
     pub fr_id: String,
 }
 
+/// Parsed multipart payload for create-profile plus enrollment flows.
 #[derive(Debug)]
 pub struct NewProfileEnrollData {
     pub profile: NewProfileRequest,
     pub image: Bytes,
 }
 
-/// Extract image and opts from multipart data.
+/// Extract image bytes and optional recognition settings from multipart form data.
 pub async fn extract_image_data(
     mut multipart: Multipart,
     min_match: f32,
@@ -95,6 +107,7 @@ pub async fn extract_image_data(
     Ok(image_data)
 }
 
+/// Extract the image and target identity id used by the add-face route.
 pub async fn extract_add_face_form_data(mut multipart: Multipart) -> WResult<AddFaceFormData> {
     //    let mut image_data = RecognizeFormData { image: None, opts: None };
     let mut face_req = AddFaceFormData { image: None, fr_id: "".to_string() };
@@ -126,7 +139,7 @@ pub async fn extract_add_face_form_data(mut multipart: Multipart) -> WResult<Add
     Ok(face_req)
 }
 
-/// Extract image and details from multipart form data.
+/// Extract enrollment image bytes plus `EnrollDetails` from multipart form data.
 pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData> {
     let mut enroll_data = EnrollData { image: None, details: None };
 
@@ -163,6 +176,7 @@ pub async fn extract_enroll_data(mut multipart: Multipart) -> WResult<EnrollData
     }
 }
 
+/// Extract a new TPass profile request and its associated enrollment image.
 pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewProfileEnrollData> {
     let mut image: Option<Bytes> = None;
     let mut profile: Option<NewProfileRequest> = None;
@@ -211,7 +225,7 @@ pub async fn extract_new_profile_req(mut multipart: Multipart) -> WResult<NewPro
     }
 }
 
-//and either convert the base64 encoding or return the raw_bytes unchanged.
+/// Accept raw image bytes or base64 text and validate the resulting image format.
 fn parse_image_field(raw_bytes: Bytes) -> WResult<Option<Bytes>> {
     if raw_bytes.is_empty() {
         return Ok(None);
@@ -231,6 +245,7 @@ fn parse_image_field(raw_bytes: Bytes) -> WResult<Option<Bytes>> {
     Ok(Some(bytes))
 }
 
+/// Decode a base64 image payload, including `data:` URL style prefixes.
 fn decode_base64_image(input: &str) -> WResult<Bytes> {
     let cleaned = input.trim();
     if cleaned.is_empty() {
@@ -263,6 +278,7 @@ fn decode_base64_image(input: &str) -> WResult<Bytes> {
     Err(Generic("image field was text but was not valid base64".to_string()))
 }
 
+/// Validate that the payload is a recognizable image format.
 fn guess_image_format(bytes: &[u8]) -> WResult<ImageFormat> {
     image::guess_format(bytes)
         .map_err(|_| Generic("uploaded data is not a recognized image format".to_string()))

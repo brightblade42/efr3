@@ -11,7 +11,7 @@ macro_rules! req_env_string {
 /// Uses fallback only when the key is missing.
 #[macro_export]
 macro_rules! env_string {
-    ($key:literal, $default:expr) => {
+    ($key:literal, $default:expr_2021) => {
         ::std::env::var($key).unwrap_or_else(|_| ($default).into())
     };
 }
@@ -37,7 +37,7 @@ macro_rules! req_env_parse {
 /// Still fails if the key is present but invalid.
 #[macro_export]
 macro_rules! env_parse {
-    ($key:literal, $t:ty, $default:expr) => {{
+    ($key:literal, $t:ty, $default:expr_2021) => {{
         match ::std::env::var($key) {
             Ok(raw) => {
                 raw.trim().parse::<$t>().map_err(|e| crate::config::ConfigError::Invalid {
@@ -68,7 +68,7 @@ macro_rules! req_env_threshold {
 /// Still fails if the key is present but invalid.
 #[macro_export]
 macro_rules! env_threshold {
-    ($key:literal, $default:expr) => {{
+    ($key:literal, $default:expr_2021) => {{
         match ::std::env::var($key) {
             Ok(raw) => crate::config::parse_threshold($key, &raw)?,
             Err(_) => $default,

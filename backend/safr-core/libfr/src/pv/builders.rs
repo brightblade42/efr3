@@ -138,8 +138,8 @@ pub(super) fn build_ident_request(
     }
 }
 
-fn default_liveness_validness_parameters(
-) -> processor::process_full_image_request::LivenessValidnessParameters {
+fn default_liveness_validness_parameters()
+-> processor::process_full_image_request::LivenessValidnessParameters {
     let mut params = processor::process_full_image_request::LivenessValidnessParameters::default();
     params.min_face_sharpness = Some(0.15);
     params.min_face_quality = Some(0.5);

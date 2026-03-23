@@ -1,6 +1,6 @@
 use super::config::TPassConf;
 use super::errors::TPassError;
-use super::tokens::{TPassToken, JWT};
+use super::tokens::{JWT, TPassToken};
 use super::types::*;
 use super::types::{
     AttendanceKind, AttendanceResponse, AttendanceStatus, CheckState, DeleteProfileRequest,
@@ -9,12 +9,12 @@ use super::types::{
 };
 use bytes::Bytes;
 use chrono::prelude::*;
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use lazy_static::lazy_static;
 use regex::Regex;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fmt::Write;
 use tokio::sync::Mutex;
@@ -446,8 +446,8 @@ impl TPassClient {
                     if depth > 2 {
                         warn!(
                             "search depth {} exceeds maximum supported depth (2); expansion is capped",
-                                    depth
-                                );
+                            depth
+                        );
                     }
                     for c1 in b'A'..=b'Z' {
                         for c2 in b'A'..=b'Z' {
@@ -510,6 +510,7 @@ impl TPassClient {
 
         Ok(BatchCallResult::new(items, attempted, succeeded, errors))
     }
+
     //TODO: there doesn't seem to be any error response, I can send anything and it gives me
     //a 200. I'll only know if I get an email or an sms.
     pub async fn send_fr_alert(&self, alert: FRAlert) -> TResult<Value> {
@@ -647,14 +648,14 @@ impl TPassClient {
     }
 
     ///searches tpass based on a given name in last, first format
-    ///returns a Vec<Value> because it's possible to send a partial name which could result in multiple
+    ///returns a `Vec<TPassProfile>` because it's possible to send a partial name which could result in multiple
     ///results. This also searches All statuses.. The same person may be in the system more than once,.
     ///I don't know if this is goood but it exists. Since I can't know which is the real Slim Shady,
     pub async fn search_by_name(&self, full_name: &str) -> TResult<Vec<TPassProfile>> {
         //build the url.
         let tk = self.get_api_token().await?;
         let status_type = "All"; //case sensitive
-                                 //NOTE: docs say to set compid to null for all companies search, does null mean leave out?
+        //NOTE: docs say to set compid to null for all companies search, does null mean leave out?
         let endpoint = format!(
             "{}api/clients/searchclient?id={}&type={}",
             self.conf.url, full_name, status_type

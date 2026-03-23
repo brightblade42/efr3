@@ -1,7 +1,9 @@
 use crate::dispatch::AssetStore;
+use crate::errors::FRError;
 use crate::tpass::{
     api::{TPassClient, TResult},
     errors::TPassError,
+    types::{AttendanceKind, AttendanceStatus},
 };
 use crate::types::{
     EnrollData, EnrollDetails, FRResult, IDPair, Image, RemoteDetails, SearchBy, SearchResult,
@@ -61,6 +63,20 @@ async fn handle_ext_id_search(client: &TPassClient, ext_id: &str) -> TResult<Opt
 //use ::{RegistrationPair, SearchResult};
 
 impl AssetStore for TPassClient {
+    async fn mark_attendance(
+        &self,
+        idpair: (String, u64),
+        att_kind: AttendanceKind,
+    ) -> FRResult<Option<AttendanceStatus>> {
+        self.mark_attendance(idpair, att_kind).await.map_err(FRError::from)
+    }
+
+    async fn send_fr_alert(
+        &self,
+        alert: crate::tpass::types::FRAlert,
+    ) -> FRResult<serde_json::Value> {
+        self.send_fr_alert(alert).await.map_err(FRError::from)
+    }
     async fn register_enrollment(&self, reg_pair: &IDPair) -> FRResult<()> {
         //TODO: reconstruct enrollment from old TPass functions.
         let ccode = reg_pair.ext_id.parse::<u64>().map_err(|_| {

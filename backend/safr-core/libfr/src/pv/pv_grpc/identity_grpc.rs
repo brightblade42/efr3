@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use tokio::sync::OnceCell;
-use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
+use tonic::transport::{Channel, Endpoint};
 
 use super::errors::PVApiError;
 use super::grpc_utils::normalize_endpoint;

@@ -2,7 +2,7 @@
 //use std::backtrace::Backtrace;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tonic::{transport::Error as TonicTransportError, Code as TonicCode, Status as TonicStatus};
+use tonic::{Code as TonicCode, Status as TonicStatus, transport::Error as TonicTransportError};
 
 //Error from api service may be app errors contained in a good response, or
 // an service level http error. We will treat them the same

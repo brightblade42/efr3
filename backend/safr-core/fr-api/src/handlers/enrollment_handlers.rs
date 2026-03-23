@@ -1,16 +1,16 @@
 use axum::{
-    extract::{multipart::Multipart, Query, State},
     Json,
+    extract::{Query, State, multipart::Multipart},
 };
 use libfr::dispatch::AssetStore;
 use libfr::types::{EnrollData, EnrollDetails, EnrolledFaceInfo, EnrollmentDeleteResult, IDPair};
 use libfr::types::{MatchConfig, SearchBy};
 use libfr::{errors::FRError, repo::EnrollmentMetadataRecord};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{error, info};
 
-use crate::{errors::AppError, extractors, AppState, WResult};
+use crate::{AppState, WResult, errors::AppError, extractors};
 
 pub async fn search_enrollment(
     State(app_state): State<AppState>,
@@ -210,7 +210,8 @@ pub async fn build_enroll_data(
     let include_image = true;
 
     let s_res = app_state
-        .tpass_client
+        .fr_service
+        .assets
         .search_one(SearchBy::ExtID(ccode), include_image)
         .await?
         .ok_or_else(|| {

@@ -1,3 +1,14 @@
+//! High-level workflow orchestration for enrollments, recognition, and attendance logging.
+//!
+//! [`FRService`] is the main integration point used by `fr-api`. It composes:
+//! - an [`FRDispatcher`] for FR engine calls
+//! - an [`AssetDispatcher`] for remote profile/attendance work
+//! - a [`SqlxFrRepository`] for local persistence and logs
+//!
+//! The service is intentionally opinionated about workflow order. For example, enrollment first
+//! validates image quality and duplicate risk before creating a backend identity and then linking
+//! it to the configured remote system.
+
 use crate::{first_or_else, json_str};
 use bytes::Bytes;
 
@@ -11,21 +22,23 @@ use crate::{
     },
 };
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 //use crate::recognition_handlers::RecognizeOpts;
 //use crate::runtime::{FREngine, RemoteRuntime};
+/// Coordinates FR-engine, remote-system, and repository operations into application workflows.
 #[derive(Clone)]
 pub struct FRService {
     fr_engine: Arc<FRDispatcher>,
-    assets: Arc<AssetDispatcher>,
+    pub assets: Arc<AssetDispatcher>,
     fr_repo: Arc<SqlxFrRepository>,
 }
 
 impl FRService {
+    /// Construct a service with injected runtime dispatchers and repository access.
     pub fn new(
         fr_engine: Arc<FRDispatcher>,
         assets: Arc<AssetDispatcher>,
@@ -90,6 +103,10 @@ impl FRService {
     }
 
     //makes a face recognizable by the system
+    /// Create a new enrollment from image bytes plus identifying details.
+    ///
+    /// This workflow performs duplicate and quality checks before creating the FR identity,
+    /// persisting local profile state, and registering the enrollment with the remote system.
     pub async fn create_enrollment(
         &self,
         enroll_data: &EnrollData,
@@ -129,6 +146,9 @@ impl FRService {
         Ok(id_pair)
     }
 
+    /// Delete an enrollment by FR identity id.
+    ///
+    /// The current implementation removes the local profile record and requests remote cleanup.
     pub async fn delete_enrollment(&self, fr_id: &str) -> FRResult<EnrollmentDeleteResult> {
         //NOTE: delete enrollment is handled purely by deleting a profile.
         //we may want to rename it delete enrollment? maybe..
@@ -151,16 +171,19 @@ impl FRService {
         Ok(EnrollmentDeleteResult { fr_id: fr_id.to_string() })
     }
 
+    /// Return admin summary counts for local enrollment-related data.
     pub async fn get_enrollment_metadata(&self) -> FRResult<EnrollmentMetadataRecord> {
         self.fr_repo.get_enrollment_metadata().await.map_err(|e| FRError::from(e))
     }
 
+    /// Return the current roster view as JSON-friendly values.
     pub async fn get_roster(&self) -> FRResult<Vec<Value>> {
         let res = self.fr_repo.get_roster(1000).await.map_err(|e| FRError::from(e))?;
 
         Ok(Self::profiles_to_values(res))
     }
 
+    /// Convert profile records into API-friendly JSON objects.
     pub fn profiles_to_values(profs: Vec<ProfileRecord>) -> Vec<Value> {
         profs
             .into_iter()
@@ -180,14 +203,19 @@ impl FRService {
     }
 
     //NOTE: danger will robinson!
+    /// Remove all local enrollment state.
+    ///
+    /// This is an operator-oriented reset path and should be treated as destructive.
     pub async fn reset_enrollments(&self) -> FRResult<u64> {
         self.fr_repo.reset_enrollments().await.map_err(|e| FRError::from(e))
     }
 
+    /// Detect faces in an image without attempting identity lookup.
     pub async fn detect_faces(&self, image: Bytes, liveness_check: bool) -> FRResult<Vec<Face>> {
         self.fr_engine.detect_faces(image, liveness_check).await
     }
 
+    /// Reject images that would create duplicate or low-confidence enrollments.
     pub async fn duplicate_check(&self, image: Bytes, config: MatchConfig) -> FRResult<()> {
         let fr_idents = self.fr_engine.recognize(image, config).await?;
 
@@ -208,6 +236,7 @@ impl FRService {
         Ok(())
     }
 
+    /// Recognize faces in an image and optionally enrich matches with remote details.
     pub async fn recognize(&self, image: Bytes, config: MatchConfig) -> FRResult<Vec<FRIdentity>> {
         let mut fr_identities = self.fr_engine.recognize(image, config).await?;
         //extract and dedupe External IDs. not really needed but eh.
@@ -231,6 +260,7 @@ impl FRService {
                 .search_by_ids(SearchBy::ExtIDS(ext_ids.into_iter().collect()), false)
                 .await?;
 
+            info!("after search id");
             // Map remote details by their ID for lookup over loops
             let pmatch_profiles: HashMap<String, Value> = remote_matches
                 .into_iter()
@@ -289,10 +319,12 @@ impl FRService {
         }
     }
 
+    /// Add a secondary face to an existing FR identity.
     pub async fn add_face(&self, fr_id: &str, image: Bytes) -> FRResult<EnrolledFaceInfo> {
         self.fr_engine.add_face(fr_id, image).await
     }
 
+    /// Delete one or more stored faces for an identity.
     pub async fn delete_faces(
         &self,
         fr_id: &str,
@@ -301,10 +333,12 @@ impl FRService {
         self.fr_engine.delete_faces(fr_id, face_ids).await
     }
 
+    /// List stored faces for an identity.
     pub async fn get_faces(&self, fr_id: &str) -> FRResult<Vec<EnrolledFaceInfo>> {
         self.fr_engine.get_faces(fr_id).await
     }
 
+    /// Search local enrollment snapshots by last name.
     pub async fn get_enrollments_by_last_name(&self, name: &str) -> FRResult<Vec<Value>> {
         let term = name.trim();
         if term.is_empty() {
@@ -319,6 +353,7 @@ impl FRService {
 
         Ok(Self::profiles_to_values(profiles))
     }
+    /// Persist a recognition event to the local match log.
     pub async fn log_cam_fr_match(
         &self,
         pm: &PossibleMatch,

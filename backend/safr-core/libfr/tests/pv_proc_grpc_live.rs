@@ -1,5 +1,5 @@
 use libfr::pv::pv_grpc::proc_grpc::{
-    health::health_check_response::ServingStatus, processor, PVProcGrpcApi,
+    PVProcGrpcApi, health::health_check_response::ServingStatus, processor,
 };
 use std::env;
 use std::fs;

@@ -1,6 +1,14 @@
+//! Environment-backed application configuration for `fr-api`.
+//!
+//! `AppConfig` translates process environment into a strongly typed startup configuration for the
+//! API server. This includes FR engine endpoints, Postgres connectivity, remote-system credentials,
+//! and threshold values used to build [`libfr::types::MatchConfig`].
+
 use crate::{env_parse, env_string, req_env_parse, req_env_string, req_env_threshold};
 use libfr::types::MatchConfig;
 use thiserror::Error;
+
+/// Startup configuration assembled from environment variables.
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub engine: String,
@@ -29,6 +37,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    /// Load and validate the full application configuration from environment variables.
     pub fn from_env() -> Result<Self, ConfigError> {
         Ok(Self {
             remote: req_env_string!("EFR_REMOTE_NAME"),
@@ -66,7 +75,7 @@ impl AppConfig {
     }
 }
 
-//reduce the set of config options to only what's needed for matchingq
+/// Reduce the full application config down to the matching thresholds used by `libfr`.
 impl From<&AppConfig> for MatchConfig {
     fn from(c: &AppConfig) -> Self {
         Self {
@@ -81,6 +90,7 @@ impl From<&AppConfig> for MatchConfig {
     }
 }
 
+/// Parse a threshold as either a ratio (`0.95`) or whole-number percent (`95`).
 pub fn parse_threshold(key: &str, raw: &str) -> Result<f32, ConfigError> {
     // 1. Remove ANY whitespace (including \r, \n, tabs)
     // 2. Remove quotes just in case
@@ -107,7 +117,7 @@ pub fn parse_threshold(key: &str, raw: &str) -> Result<f32, ConfigError> {
     Ok(normalized)
 }
 
-//use this_error
+/// Configuration-loading errors surfaced during startup.
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("🔴 missing require environment var: {0}")]

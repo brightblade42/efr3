@@ -1,3 +1,41 @@
+//! `libfr` is the core orchestration crate behind the SAFR backend.
+//!
+//! It sits between three distinct concerns:
+//! - an FR engine implementation, currently Paravision gRPC
+//! - a remote system of record for people and attendance, currently TPass
+//! - local Postgres persistence for profile snapshots and operational logs
+//!
+//! The crate exposes a small set of modules that define those boundaries:
+//! - [`dispatch`] selects concrete FR and remote implementations at runtime
+//! - [`service`] coordinates enrollment, recognition, attendance, and logging flows
+//! - [`repo`] persists local enrollment metadata and audit-style records
+//! - [`pv`] contains the Paravision integration
+//! - [`tpass`] contains the TPass integration
+//! - [`types`] defines the main transport and domain types used across layers
+//! - [`errors`] defines the domain error surface shared by callers
+//!
+//! For internal engineers, the best entry points are [`service::FRService`],
+//! [`dispatch::FRBackend`], [`dispatch::AssetStore`], and [`types::MatchConfig`].
+//!
+//! Runtime model:
+//! 1. `fr-api` parses HTTP input and converts it into `libfr` request types.
+//! 2. [`service::FRService`] validates input and coordinates backend/repo/remote calls.
+//! 3. [`dispatch::FRDispatcher`] forwards FR operations to the configured engine.
+//! 4. [`dispatch::AssetDispatcher`] forwards profile and attendance operations to the remote.
+//! 5. [`repo::SqlxFrRepository`] stores local snapshots, logs, and summary metadata.
+//!
+//! The crate intentionally favors typed request/response models over generic JSON where the
+//! payload shape is stable, but some compatibility layers still carry `serde_json::Value`.
+//!
+//! Environment-sensitive behavior such as network endpoints and thresholds is configured in
+//! `fr-api`; this crate assumes dependencies are already constructed and injected.
+//!
+//! ## Documentation Map
+//!
+//! - Architecture and engineering notes: `backend/safr-core/docs/libfr.md`
+//! - System overview: `backend/safr-core/docs/architecture.md`
+//! - Runtime flows: `backend/safr-core/docs/runtime-flow.md`
+
 #[macro_use]
 mod macros;
 pub mod dispatch;
@@ -40,6 +78,7 @@ pub mod utils {
         roundf32(score * 100.0, 2)
     }
 
+    /// Accept either ratio-style (`0.98`) or percent-style (`98.0`) thresholds.
     pub fn normalize_score_threshold(threshold: f32) -> f32 {
         let raw = if threshold > 1.0 { threshold / 100.0 } else { threshold };
 

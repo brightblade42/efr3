@@ -101,10 +101,12 @@ impl From<TPassError> for FRError {
 
                 Self::Remote(msg)
             }
+            //TODO: implement more TPASS errors here
             // Fallback for HttpError, JsonError, etc.
             _ => {
                 let msg = e.to_string();
-                error!(target: "remote_integration_fb", "🆔 {}", msg);
+                error!("{:?}", e);
+                error!(target: "remote_integration_fallback", "🧑‍💻 {}", msg);
 
                 Self::Remote(msg)
             }

@@ -1,14 +1,15 @@
 use crate::errors::AppError;
 use crate::extractors::RecognizeFormData;
-use crate::{errors::AppError::Generic, extractors, AppState, WResult};
+use crate::{AppState, WResult, errors::AppError::Generic, extractors};
 use axum::{
-    extract::{multipart::Multipart, State},
     Json,
+    extract::{State, multipart::Multipart},
 };
+use libfr::dispatch::AssetStore;
 use libfr::json_str;
 use libfr::tpass::types::{AttendanceKind, AttendanceStatus};
 use libfr::types::{FRIdentity, MatchConfig};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{debug, error, info, warn};
 
 //NOTE: mark_attendance and v1 are the same now, but only remove
@@ -106,8 +107,11 @@ pub async fn do_attendance(
     //tell TPASS we're checking in or out.
     let status = match att_kind {
         Some(kind) => app_state
-            .tpass_client
+            .fr_service
+            .assets
             .mark_attendance(idpair, kind)
+            // .tpass_client
+            // .mark_attendance(idpair, kind)
             .await
             .map_err(|e| Generic(format!("couldn't mark attendance: {}", e)))?,
         None => None,
