@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# --- Configuration ---
+APP_NAME="fr-api"
+# Target RHEL 9 / Debian glibc compatibility
+TARGET="x86_64-unknown-linux-gnu.2.31"
+IMAGE_NAME="docker.io/eyemetricfr/$APP_NAME:latest"
+REMOTE_HOST="rhel-server"
+REMOTE_PATH="~/projects/fr-api"
+
+# --- Environment Prep ---
+# Fix for "ProcessFdQuotaExceeded" on macOS during heavy Rust linking
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    CURRENT_LIMIT=$(ulimit -n)
+    if [ "$CURRENT_LIMIT" -lt 4096 ]; then
+        echo "🔧 Increasing file descriptor limit to 10000..."
+        ulimit -n 10000
+    fi
+fi
+
+# --- Functions ---
+
+build_local_zig() {
+    echo "🚀 [M1 Mac] Cross-compiling $APP_NAME for x86_64..."
+
+    # Fast native M1 build using Zig as the linker
+    cargo zigbuild --release --target $TARGET
+
+    echo "📦 [Podman] Building image using Dockerfile.zig..."
+    # Points to the external Dockerfile
+    podman build -t "$IMAGE_NAME" -f fr-api/Dockerfile .
+
+    echo "✅ Local Zig Build Complete."
+}
+
+sync_and_build_remote() {
+    echo "🔄 [Mutagen] Flushing sync to $REMOTE_HOST..."
+    mutagen sync flush $APP_NAME-sync
+
+    echo "🛠 [SSH] Running native build on remote host..."
+    # This assumes your remote environment is set up for native Rust builds
+    ssh "$REMOTE_HOST" "cd $REMOTE_PATH && cargo build --release"
+
+    echo "✅ Remote Native Build Complete."
+}
+
+# --- CLI Interface ---
+
+case "$1" in
+    local)
+        build_local_zig
+        ;;
+    remote)
+        sync_and_build_remote
+        ;;
+    *)
+        echo "Usage: $0 {zig|remote}"
+        echo "  local    - Build x86 image on M1 Mac using Zig (Fastest)"
+        echo "  remote - Sync code and build natively on RHEL 9 via SSH"
+        exit 1
+        ;;
+esac
