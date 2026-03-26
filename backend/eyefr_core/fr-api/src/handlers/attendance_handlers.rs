@@ -24,8 +24,8 @@ pub async fn mark_attendance_v1(
     if let Some(opts) = img_data.opts.as_mut() {
         opts.include_details = true;
     }
-    info!("{:?}", img_data.opts);
-    // img_data.opts.as_mut().map(|o| o.include_details = true);
+
+    // info!("{:?}", img_data.opts);
 
     let (fr_ident, status) = do_attendance(app_state, img_data).await?;
 

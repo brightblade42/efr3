@@ -1,6 +1,0 @@
-#!/bin/bash
-
-
-curl -v -k -X POST  -H "Content-Type: application/json" -d '{"search_term":"Bar", "comp_id":1018 }' http://localhost:3000/tpass/search
-
-

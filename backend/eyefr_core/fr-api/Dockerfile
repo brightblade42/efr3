@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 WORKDIR /app
 
 # The binary path is relative to the build context (project root)
-COPY ./target/x86_64-unknown-linux-gnu/release/fr-api ./fr-api
+COPY ../target/x86_64-unknown-linux-gnu/release/fr-api ./fr-api
 
 # Security: Run as non-root
 USER 1000:1000

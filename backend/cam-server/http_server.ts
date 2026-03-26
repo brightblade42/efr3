@@ -189,13 +189,14 @@ async function lookup(face: Face, cam: CameraData): Promise<RecognizedResult> {
 //The auto alert func.
 async function send_alert(alert: FRAlert): Promise<Result<void, AppError>> {
   try {
-    const resp = await fetch(`${FR_API_URL}/fr/send-alert`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(alert),
-    });
+    console.log("auto fr alert paused");
+    // const resp = await fetch(`${FR_API_URL}/fr/send-alert`, {
+    //   method: "POST",
+    //   headers: {
+    //     "Content-Type": "application/json",
+    //   },
+    //   body: JSON.stringify(alert),
+    // });
 
     return ok(undefined);
   } catch (e) {

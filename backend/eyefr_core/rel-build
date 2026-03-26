@@ -28,8 +28,13 @@ build_local_zig() {
 
     echo "📦 [Podman] Building image using Dockerfile.zig..."
     # Points to the external Dockerfile
-    podman build -t "$IMAGE_NAME" -f fr-api/Dockerfile .
-
+    #podman build --platform linux/amd64 -t  "$IMAGE_NAME" -f fr-api/Dockerfile .
+    podman build \
+            --platform linux/amd64 \
+            --no-cache \
+            --pull \
+            -t "$IMAGE_NAME" \
+            -f fr-api/Dockerfile .
     echo "✅ Local Zig Build Complete."
 }
 
