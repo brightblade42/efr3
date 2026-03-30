@@ -1,0 +1,17 @@
+[Unit]
+Description=Start EyeFR {{ .Arch }} {{ .Ver }} after reboot
+After=network-online.target multi-user.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment="EYEFR_ARCH={{ .Arch }}"
+{{if eq .Arch  "gpu" -}}
+ExecStartPre=/bin/sh -c 'nvidia-smi > /dev/null 2>&1 || (echo "NVIDIA GPU not ready" && exit 1)'
+{{end -}}
+ExecStart={{ .Dir }}{{ .Ver }}/compose/bashman.host ${EYEFR_ARCH}
+ExecStop=podman rm -af
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,81 @@
+
+:443 {
+
+ #no auth
+
+  tls {
+        issuer acme {
+            dir https://192.168.3.225:9000/acme/acme/directory
+            trusted_roots /data/caddy/root_ca.crt
+        }
+    }
+
+    handle {
+
+        #camera commands and faces.
+        reverse_proxy /wss localhost:3010
+        reverse_proxy /fr/*  localhost:3000
+        reverse_proxy /tpass/* localhost:3000
+    }
+
+     #rtsp-webrtc transcoding server
+      handle_path /cams/* {
+          reverse_proxy localhost:8083
+      }
+
+      root * /srv/bolo
+      file_server
+}
+
+:80 {
+
+
+#   handle /auth {
+#       uri strip_prefix /auth
+#       reverse_proxy localhost:3001
+
+#   }
+
+#       handle /assets/* {
+#           reverse_proxy localhost:3001
+#   }
+
+#       handle /getToken {
+#           reverse_proxy localhost:3001
+#   }
+
+#       handle /logout {
+#           reverse_proxy localhost:3001
+#   }
+
+#   handle @noCookie {
+#          redir / /auth
+#   }
+
+    handle {
+
+        #camera commands and faces.
+        reverse_proxy /wss localhost:3010
+        reverse_proxy /fr/*  localhost:3000
+        reverse_proxy /tpass/* localhost:3000
+    }
+
+     #rtsp-webrtc transcoding server
+      handle_path /cams/* {
+          reverse_proxy localhost:8083
+      }
+
+      root * /srv/bolo
+      file_server
+}
+
+
+franalyze.eyemetric.com {
+    tls internal
+
+    reverse_proxy /fr/*  localhost:3000
+    reverse_proxy /tpass/* localhost:3000
+
+    root * /srv/analyze
+    file_server
+}

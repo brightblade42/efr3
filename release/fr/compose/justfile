@@ -1,0 +1,150 @@
+# ==============================================================================
+# Configuration & Variables
+# Override arch at runtime: `just --set arch cpu up`
+# ==============================================================================
+
+arch := "gpu"
+APP_VER := "2.0.0"
+
+# Note: Cleaned up the empty `if [[ "" ]]` block from your bash script.
+
+app_tag := arch + "_" + APP_VER
+APP_DIR := "/home/eyemetric/fr/" + APP_VER
+
+# --- Images ---
+
+FRDB_IMAGE := "docker.io/eyemetricfr/frdb18:2.0.0"
+FR_API_IMAGE := "docker.io/eyemetricfr/fr-api:latest"
+CAM_SERVER_IMAGE := "docker.io/eyemetricfr/cam-server:" + APP_VER
+RTSP_WEBRTC_IMAGE := "docker.io/eyemetricfr/rtsp-webrtc:" + APP_VER
+FACADE_IMAGE := "docker.io/eyemetricfr/facade:" + APP_VER
+
+#AUTH_IMAGE := "docker.io/eyemetricfr/auth:" + APP_VER
+
+IDENTITY_IMAGE := "containers.paravision.ai/identity/identity:v7.0.2"
+
+# --- Dynamic Architecture Logic ---
+
+PROCESSOR_IMAGE := if arch == "gpu" { "containers.paravision.ai/processor-age/processor-age:v7.14.0-gen6-balanced-tensorrt" } else { "docker.io/eyemetricfr/processor:v7.14.0-gen6-precision-openvino" }
+STREAMING_IMAGE := if arch == "gpu" { "docker.io/eyemetricfr/streaming:v8.0.2-tensorrt" } else { "docker.io/eyemetricfr/streaming:v8.0.2-openvino" }
+
+# Podman arguments that are only injected if arch is GPU
+
+GPU_ARGS := if arch == "gpu" { "--device nvidia.com/gpu=all --security-opt label=disable -e NVIDIA_VISIBLE_DEVICES=nvidia.com/gpu=all -e NVIDIA_DRIVER_CAPABILITIES=all" } else { "" }
+
+default:
+    @just --list
+
+# ==============================================================================
+# Pre-Flight Checks
+
+# ==============================================================================
+check-reqs:
+    #!/usr/bin/env bash
+    if ! command -v podman >/dev/null 2>&1; then echo "❌ Podman not found."; exit 1; fi
+    if [ "{{ arch }}" = "gpu" ] && ! command -v nvidia-smi >/dev/null 2>&1; then echo "❌ NVIDIA GPU not ready."; exit 1; fi
+
+# ==============================================================================
+# Container Recipes
+# We use a trick here: `podman start || podman run`.
+# This perfectly mimics your bash `start_container` function. It tries to start
+# an existing container; if it doesn't exist, it falls back to creating/running it.
+# ==============================================================================
+
+start-frdb: check-reqs
+    @echo "▶ Ensuring frdb_{{ app_tag }} is running..."
+    @podman start frdb_{{ app_tag }} 2>/dev/null || podman run -d --name frdb_{{ app_tag }} \
+        --network host \
+        --env-file=./.env \
+        -v {{ APP_DIR }}/data/eyefr_pgdata/_data:/var/lib/postgresql/data:Z \
+        -p 5432:5432 \
+        {{ FRDB_IMAGE }}
+
+start-pvident: start-frdb
+    #!/usr/bin/env bash
+    # This recipe depends on start-frdb, and includes your wait-loop logic
+    set -e
+    echo "⏳ Waiting for frdb_{{ app_tag }} to be ready..."
+    for i in {1..12}; do
+        if podman container inspect --format '{{ "{{.State.Running}}" }}' "frdb_{{ app_tag }}" 2>/dev/null | grep -q "true"; then
+            echo "✅ frdb is running."
+            break
+        fi
+        sleep 5
+    done
+    echo "▶ Ensuring pvident_{{ app_tag }} is running..."
+    podman start pvident_{{ app_tag }} 2>/dev/null || podman run -d --name pvident_{{ app_tag }} \
+        --network host \
+        --env-file=./.env \
+        --restart always -p 5656:5656 -p 8080:8080 \
+        {{ IDENTITY_IMAGE }}
+
+start-pvproc: check-reqs
+    @echo "▶ Ensuring pvproc_{{ app_tag }} is running..."
+    @podman start pvproc_{{ app_tag }} 2>/dev/null || podman run -d --name pvproc_{{ app_tag }} \
+        --network host \
+        --env-file=./.env \
+        --restart always -p 8081:8081 -p 50051:50051 \
+        {{ GPU_ARGS }} \
+        {{ PROCESSOR_IMAGE }}
+
+start-pvstream: check-reqs
+    @echo "▶ Ensuring pvstream_{{ app_tag }} is running..."
+    @podman start pvstream_{{ app_tag }} 2>/dev/null || podman run -d --name pvstream_{{ app_tag }} \
+        --network host \
+        --env-file=./.env \
+        --restart always --tmpfs /dev/shm:size=6g \
+        -p 5000:5000 -p 5050:5050 -p 5051:5051 \
+        {{ GPU_ARGS }} \
+        {{ STREAMING_IMAGE }}
+
+start-rtsp-webrtc: check-reqs
+    @echo "▶ Ensuring rtsp_webrtc_{{ app_tag }} is running..."
+    @podman start rtsp_webrtc_{{ app_tag }} 2>/dev/null || podman run -d --name rtsp_webrtc_{{ app_tag }} \
+        --network host \
+        --restart always \
+        -v {{ APP_DIR }}/config/rtsp-webrtc.json:/config/config.json:Z \
+        {{ RTSP_WEBRTC_IMAGE }}
+
+start-frapi: check-reqs
+    @echo "▶ Ensuring frapi_{{ app_tag }} is running..."
+    @podman start frapi_{{ app_tag }} 2>/dev/null || podman run -d --name frapi_{{ app_tag }} \
+        --network host \
+        -e RUST_LOG=info \
+        -v {{ APP_DIR }}/compose/.env:/app/.env \
+        -v /home/eyemetric/projects/eyefr/backend/eyefr_core/target/debug/fr-api:/app/fr-api \
+        {{ FR_API_IMAGE }}
+
+start-camserver: check-reqs
+    @echo "▶ Ensuring camserver_{{ app_tag }} is running..."
+    @podman start camserver_{{ app_tag }} 2>/dev/null || podman run -d --name camserver_{{ app_tag }} \
+        --network host \
+        --env-file=./.env \
+        --restart always -p 3010:3010 \
+        -v /home/eyemetric/cam-server:/app \
+        {{ CAM_SERVER_IMAGE }}
+
+start-facade: check-reqs
+    @echo "▶ Ensuring facade_{{ app_tag }} is running..."
+    @podman start facade_{{ app_tag }} 2>/dev/null || podman run -d --name facade_{{ app_tag }} \
+        --network host \
+        --restart always -p 443:443 \
+        -v {{ APP_DIR }}/sites/cam-app:/srv/bolo:Z \
+        -v {{ APP_DIR }}/sites/fr-analyze:/srv/analyze:Z \
+        -v {{ APP_DIR }}/config/Caddyfile:/etc/caddy/Caddyfile:Z \
+        -v {{ APP_DIR }}/certs:/data/caddy:Z \
+        {{ FACADE_IMAGE }}
+
+# ==============================================================================
+# Orchestration
+# ==============================================================================
+
+# Start the entire stack in the correct order
+@up: start-pvident start-pvproc start-pvstream start-rtsp-webrtc start-frapi start-camserver start-facade
+    echo "🚀 All containers started successfully."
+
+# Stop and remove all containers associated with this stack
+@down:
+    echo "🛑 Tearing down stack..."
+    -podman rm -f frdb_{{ app_tag }} pvident_{{ app_tag }} pvproc_{{ app_tag }} pvstream_{{ app_tag }} rtsp_webrtc_{{ app_tag }} frapi_{{ app_tag }} camserver_{{ app_tag }} facade_{{ app_tag }} 2>/dev/null
+    echo "Done."

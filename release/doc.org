@@ -1,0 +1,126 @@
+#+title: Spec
+#+author: Ryan Martin
+
+
+
+* EyeFR installer / launcher
+
+
+  NOTE: This tool replace 2 ansible projects. It is part of the **Radical Simplicity** philosophy. We aim to minimize the number of different technologies used.
+
+** Current phase-1 bootstrap flow
+
+On a fresh machine, the current flow is:
+
+1. Install =just= with the bootstrap script
+   - =sudo ./scripts/bootstrap/install_just.sh=
+   - this uses the official =just= installer and installs a pinned version by default
+   - the install location and version can be configured in =eyefr.env=
+
+2. Copy the example env file
+   - =cp eyefr.env.example eyefr.env=
+
+3. Adjust any needed values in =eyefr.env=
+
+4. Install phase-1 prerequisites
+   - =just install-prereqs=
+   - use =just --dry-run install-prereqs= to preview the full flow without executing it
+
+You can also run individual phase-1 steps with:
+
+- =just setup-repos=
+- =just update-system=
+- =just setup-user=
+- =just install-podman=
+- =just install-distrobox=
+- =just setup-nvidia=
+- =just configure-gpu-access=
+- =just verify-gpu-access=
+
+  This tool 2 goals
+
+  1. Install prerequisites and dependencies
+  2. Install one or more versions of FR services
+
+
+  This can be accomplished with 2 high-level flows
+  1. install phase-1 prerequisites
+  2. install FR services
+
+
+** Prerequites / Dependency installation
+
+*** Preparing the server for running FR services
+
+Install and configure the server.
+- enable rhel repositories
+- update OS
+- create / configure the service user
+- install podman
+- install distrobox
+- optionally install nvidia drivers
+- optionally configure gpu access for containers
+- verify gpu access
+
+**** Features
+should be able run any command independently to step through the process manually.
+shouldn't rerun commands that have already updated the state of the machine unless --force is provided
+
+
+** Install FR Services
+
+
+An embedded FS embedded in the installer binary contains the directory structure, the various config files and bash scripts
+needed to manage the FR services
+
+- create the application directory structure under a versioned name
+- copy configuration files to proper directories
+- copy the initial database files
+
+Default location for FR services is /home/user/fr/app_version
+
+**** Data installation
+
+ There are 2 postgres databases to install. The initial databases are embedded in the binary as tar files.
+ They are extracted to the data folder and loaded as host volumes to their respective containers.
+
+ We'll need to figure out if we need to do something like migrations for further sql updates. I really don't like migrations.
+
+
+
+* pre installation steps
+- backup existing version if installing the same version over it.
+
+
+* Post installation steps that are still manual
+- must edit the postgresql.conf file and change port number to 5433
+- chmod +x bashman script
+- systemctl --user enable eyefr_pod.service
+- set unprivileged port to 80 in /etc/sysctl.conf
+  line: net.ipv4.ip_unprivileged_port_start=80
+  run sysctl -p
+- enrollment issue when database is completely empty
+-
+
+* TODOS
+
+** TODO backup existing version before running installations
+** TODO add list-versions command to show what version can be installed
+** TODO allow copying existing data to new version if applicable
+** TODO reintegrate the auth image
+** TODO convert bashman to a go program using the podman api (bigger project)
+** DONE update Caddyfile template to not use vars for container names
+** TODO make sure local firewalld is disabled or open for 80/443
+** TODO add scripts dir to installer
+** TODO add a regen-config command to quickly update config with new values
+
+
+* Issues
+
+** paravision.enrollment table isn't tied to it's auto increment sequece.
+need to run this post install
+#+begin_src sql
+    ALTER TABLE paravision.enrollment
+ALTER COLUMN id SET DEFAULT nextval('paravision.enrollment_id_seq');
+
+#+end_src

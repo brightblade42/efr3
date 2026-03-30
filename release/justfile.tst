@@ -1,0 +1,221 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+set dotenv-filename := "eyefr.env"
+set dotenv-load := true
+set export
+set guards
+
+# --- Global Variables ---
+USER_NAME := env('USER_NAME', 'eyemetric')
+GROUP_NAME := env('GROUP_NAME', 'eyemetric')
+SSH_KEY_PATH := env('SSH_KEY_PATH', '')
+SETUP_NVIDIA := env('SETUP_NVIDIA', '1')
+SETUP_PODMAN := env('SETUP_PODMAN', '1')
+SETUP_DISTROBOX := env('SETUP_DISTROBOX', '1')
+SETUP_USER := env('SETUP_USER', '1')
+SETUP_REPOS := env('SETUP_REPOS', '1')
+UPDATE_SYSTEM := env('UPDATE_SYSTEM', '1')
+ENABLE_WHEEL_NOPASSWD := env('ENABLE_WHEEL_NOPASSWD', '1')
+NVIDIA_TOOLKIT_CHANNEL := env('NVIDIA_TOOLKIT_CHANNEL', 'stable')
+OS_MAJOR_VERSION := env('OS_MAJOR_VERSION', '9')
+
+# Dynamically determine OS ID (e.g., 'rhel', 'almalinux', 'fedora')
+OS_ID := shell('source /etc/os-release && echo "${ID:-unknown}"')
+
+NVIDIA_REPO_URL := 'https://developer.download.nvidia.com/compute/cuda/repos/rhel' + OS_MAJOR_VERSION + '/x86_64/cuda-rhel' + OS_MAJOR_VERSION + '.repo'
+NVIDIA_TOOLKIT_REPO_URL := 'https://nvidia.github.io/libnvidia-container/' + NVIDIA_TOOLKIT_CHANNEL + '/rpm/nvidia-container-toolkit.repo'
+NVIDIA_CUDA_IMAGE := 'nvidia/cuda:12.8.0-base-ubi9'
+
+default:
+    @just --list --unsorted
+
+show-config:
+    @printf '%s\n' \
+      "USER_NAME=$USER_NAME" \
+      "GROUP_NAME=$GROUP_NAME" \
+      "SETUP_REPOS=$SETUP_REPOS" \
+      "UPDATE_SYSTEM=$UPDATE_SYSTEM" \
+      "SETUP_USER=$SETUP_USER" \
+      "SETUP_PODMAN=$SETUP_PODMAN" \
+      "SETUP_DISTROBOX=$SETUP_DISTROBOX" \
+      "SETUP_NVIDIA=$SETUP_NVIDIA" \
+      "NVIDIA_TOOLKIT_CHANNEL=$NVIDIA_TOOLKIT_CHANNEL" \
+      "OS_MAJOR_VERSION=$OS_MAJOR_VERSION" \
+      "OS_ID={{OS_ID}}"
+
+[group('phase-1')]
+install-prereqs: setup-repos update-system setup-user install-podman install-distrobox setup-nvidia configure-gpu-access verify-gpu-access
+
+# Enable required package repositories for RHEL-family systems.
+[group('phase-1')]
+setup-repos:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "$SETUP_REPOS" != "1" ]]; then
+      echo "SETUP_REPOS=$SETUP_REPOS; skipping repo setup"
+      exit 0
+    fi
+
+    sudo dnf install -y dnf-plugins-core
+
+    if [[ "{{OS_ID}}" == "rhel" ]]; then
+      command -v subscription-manager >/dev/null 2>&1 || { echo "subscription-manager is required on RHEL"; exit 1; }
+      sudo subscription-manager repos --enable "rhel-{{OS_MAJOR_VERSION}}-for-x86_64-appstream-rpms"
+      sudo subscription-manager repos --enable "rhel-{{OS_MAJOR_VERSION}}-for-x86_64-baseos-rpms"
+      sudo subscription-manager repos --enable "codeready-builder-for-rhel-{{OS_MAJOR_VERSION}}-x86_64-rpms"
+    else
+      sudo dnf config-manager --set-enabled crb || sudo dnf config-manager --set-enabled powertools
+    fi
+
+    sudo rpm --import "https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{{OS_MAJOR_VERSION}}"
+    sudo dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{OS_MAJOR_VERSION}}.noarch.rpm"
+
+# Update system packages.
+[group('phase-1')]
+update-system:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "$UPDATE_SYSTEM" != "1" ]]; then
+        echo "UPDATE_SYSTEM=$UPDATE_SYSTEM; skipping system update"
+        exit 0
+    fi
+    sudo dnf update -y
+
+# Create and configure the service user.
+[group('phase-1')]
+setup-user:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ "$SETUP_USER" != "1" ]]; then
+      echo "SETUP_USER=$SETUP_USER; skipping user setup"
+      exit 0
+    fi
+
+    getent group "$GROUP_NAME" >/dev/null 2>&1 || sudo groupadd "$GROUP_NAME"
+    id "$USER_NAME" >/dev/null 2>&1 || sudo useradd -m -g "$GROUP_NAME" -G wheel "$USER_NAME"
+    id -nG "$USER_NAME" 2>/dev/null | tr ' ' '\n' | grep -Fxq wheel || sudo usermod -aG wheel "$USER_NAME"
+
+    if [[ -n "$SSH_KEY_PATH" ]] && [[ -f "$SSH_KEY_PATH" ]]; then
+      home_dir="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+      ssh_dir="$home_dir/.ssh"
+      auth_keys="$ssh_dir/authorized_keys"
+
+      sudo mkdir -p -m 700 "$ssh_dir"
+      sudo touch "$auth_keys"
+      sudo chmod 600 "$auth_keys"
+
+      if ! sudo grep -Fqx -f "$SSH_KEY_PATH" "$auth_keys" 2>/dev/null; then
+        sudo cat "$SSH_KEY_PATH" | sudo tee -a "$auth_keys" >/dev/null
+      fi
+      sudo chown -R "$USER_NAME:$GROUP_NAME" "$ssh_dir"
+    fi
+
+    if [[ "$ENABLE_WHEEL_NOPASSWD" == "1" ]]; then
+      echo '%wheel ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/wheel-nopass >/dev/null
+      sudo chmod 0440 /etc/sudoers.d/wheel-nopass
+    fi
+
+# Install podman.
+[group('phase-1')]
+install-podman:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "$SETUP_PODMAN" != "1" ]]; then
+        echo "SETUP_PODMAN=$SETUP_PODMAN; skipping podman install"
+        exit 0
+    fi
+    sudo dnf install -y podman
+
+# Install distrobox.
+[group('phase-1')]
+install-distrobox:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "$SETUP_DISTROBOX" != "1" ]]; then
+        echo "SETUP_DISTROBOX=$SETUP_DISTROBOX; skipping distrobox install"
+        exit 0
+    fi
+    sudo dnf install -y distrobox
+    command -v podman >/dev/null 2>&1 || echo "warning: distrobox is installed, but podman is not currently on PATH"
+
+# Install NVIDIA drivers when a GPU is present.
+[group('nvidia')]
+setup-nvidia:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ "$SETUP_NVIDIA" != "1" ]]; then
+        echo "SETUP_NVIDIA=$SETUP_NVIDIA; skipping NVIDIA driver setup."
+        exit 0
+    fi
+
+    if ! lspci | grep -qi nvidia; then
+        echo "No NVIDIA GPU detected via lspci; skipping NVIDIA driver setup."
+        exit 0
+    fi
+
+    echo "Starting NVIDIA driver installation sequence..."
+    just enable-nvidia-repo
+    just install-nvidia-drivers
+
+# Configure container GPU access for podman.
+[group('nvidia')]
+configure-gpu-access:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ "$SETUP_NVIDIA" != "1" ]] || ! lspci | grep -qi nvidia || ! command -v podman >/dev/null 2>&1; then
+        echo "Skipping GPU container access configuration (requirements not met)."
+        exit 0
+    fi
+
+    echo "Configuring NVIDIA Container Toolkit for Podman..."
+    just install-nvidia-toolkit-repo
+    just install-nvidia-container-toolkit
+    just configure-nvidia-toolkit
+    just generate-nvidia-cdi
+
+# Verify GPU access through podman.
+[group('nvidia')]
+verify-gpu-access:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ "$SETUP_NVIDIA" != "1" ]] || ! lspci | grep -qi nvidia || ! command -v podman >/dev/null 2>&1; then
+        echo "Skipping GPU verification."
+        exit 0
+    fi
+
+    echo "Running verification container..."
+    just verify-gpu-with-podman
+
+# --- Private NVIDIA Helpers ---
+
+[private]
+enable-nvidia-repo:
+    sudo dnf config-manager --add-repo "{{NVIDIA_REPO_URL}}"
+
+[private]
+install-nvidia-drivers:
+    sudo dnf module install -y nvidia-driver:latest-dkms
+
+[private]
+install-nvidia-toolkit-repo:
+    sudo dnf config-manager --add-repo "{{NVIDIA_TOOLKIT_REPO_URL}}"
+
+[private]
+install-nvidia-container-toolkit:
+    sudo dnf install -y nvidia-container-toolkit
+
+[private]
+configure-nvidia-toolkit:
+    sudo nvidia-ctk config --set nvidia-container-cli.no-cgroups --in-place
+
+[private]
+generate-nvidia-cdi:
+    sudo mkdir -p /etc/cdi
+    sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+
+[private]
+verify-gpu-with-podman:
+    sudo podman run --rm --security-opt=label=disable --device nvidia.com/gpu=all {{NVIDIA_CUDA_IMAGE}} nvidia-smi
