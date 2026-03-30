@@ -1,6 +1,5 @@
 import postgres from "https://deno.land/x/postgresjs/mod.js";
 import { err, ok, Result } from "./utils.ts";
-//this is cool
 //import {CameraData, DetectedResult, FRStreamSettings} from "../../shared/types.ts";
 import { CameraData, DetectedResult, FRStreamSettings } from "./types.ts";
 

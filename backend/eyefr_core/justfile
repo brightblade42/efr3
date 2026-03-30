@@ -1,0 +1,23 @@
+default:
+    @just --list
+
+# start file sync
+sync-up:
+    @echo 'Starting mutagen file sync'
+    mutagen project start
+    mutagen sync list
+
+# terminiate file synching
+sync-down:
+    @echo 'Stoping mutagen file sync'
+    mutagen project terminate
+
+status:
+    mutagen sync list
+
+# SSH to dev server and drop into DevBox container
+remote:
+    ssh -t eyemetric@100.79.241.8 "distrobox enter tools"
+
+build:
+    cargo build -p fr-api

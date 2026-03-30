@@ -1,0 +1,23 @@
+sync:
+  defaults:
+    # Two-way sync prevents your remote edits from being overwritten.
+    # 'safe' means if you edit the SAME file locally and remotely at the exact same time,
+    # it pauses and asks you to resolve it, ensuring zero data loss.
+    mode: "two-way-safe"
+
+    # CRITICAL: Do not sync build artifacts.
+    # Compiling Rust/Go generates massive, OS-specific binaries.
+    # Syncing these will crush your network and break your remote server.
+    ignore:
+      vcs: true
+      paths:
+        - "target/" # Rust build dir
+        - "bin/" # Go build dir
+        - "pkg/" # Go package dir
+        - "node_modules/" # Deno/JS
+        - ".DS_Store"
+
+  # Target 1: Your Remote Dev Server (The Distrobox Host)
+  dev-225:
+    alpha: "."
+    beta: "eyemetric@100.79.241.8:/home/eyemetric/projects/eyefr/backend/eyefr_core"

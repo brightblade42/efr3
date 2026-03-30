@@ -12,7 +12,11 @@ INCLUDE_DETAILS="${2:-false}"
 OPTS="$(printf '{"include_details":%s'} "$INCLUDE_DETAILS" )"
 
 
-curl_json POST "/fr/recognize" \
+##curl_json  POST "/fr/recognize" \
+#  -F "opts=${OPTS};type=application/json" \
+#  -F "image=${IMAGE};filename=face.jpg;type=image/jpeg"
+
+curl -k -X POST "https://173.220.177.76/fr/recognize" \
   -F "opts=${OPTS};type=application/json" \
   -F "image=${IMAGE};filename=face.jpg;type=image/jpeg"
 

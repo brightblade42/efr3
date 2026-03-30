@@ -260,7 +260,6 @@ impl FRService {
                 .search_by_ids(SearchBy::ExtIDS(ext_ids.into_iter().collect()), false)
                 .await?;
 
-            info!("after search id");
             // Map remote details by their ID for lookup over loops
             let pmatch_profiles: HashMap<String, Value> = remote_matches
                 .into_iter()
