@@ -1,4 +1,0 @@
-{
-    "dotnet.defaultSolution": "backend/fr-cams-server/FRCamsServer.sln",
-    "ansible.python.interpreterPath": "/bin/python"
-}
