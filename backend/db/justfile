@@ -43,7 +43,7 @@ dump-schema:
     SERVER_VERSION="$("{{ PG_BIN }}/psql" "{{ IDENTITY_DB_URL }}" -tAc "show server_version;" | tr -d '[:space:]')"
     CAPTURED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-    cat > "{{ OUT_DIR }}/SCHEMA_SOURCE.md" <<EOF
+    cat > "{{ OUT_DIR }}/README.md" <<EOF
     # Schema Source
     - Captured at: $CAPTURED_AT
     - Database: identity
