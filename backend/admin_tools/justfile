@@ -1,0 +1,9 @@
+default:
+    @just --list
+
+build:
+    podman build -t docker.io/eyemetricfr/dev_box:latest .
+
+push:
+    echo "mm push it. push it real good. to dockerhub"
+    podman push docker.io/eyemetricfr/dev_box:latest

@@ -1,0 +1,5 @@
+default:
+    @just --list
+
+hello:
+    echo "hello there rev_proxy"
