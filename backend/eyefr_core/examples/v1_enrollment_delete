@@ -7,11 +7,9 @@ source "$SCRIPT_DIR/_common"
 FR_ID="${1:-}"
 require_arg "$FR_ID" "fr_id"
 
-PAYLOAD="$(printf '{"fr_id":"%s"}' "$FR_ID")"
 
 PAYLOAD="$(printf '{"fr_ids": ["%s"], "full_delete": false }' "$FR_ID")"
 
 curl_json POST "/fr/enrollment/delete" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD"
-

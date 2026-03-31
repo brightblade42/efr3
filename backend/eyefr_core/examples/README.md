@@ -17,7 +17,7 @@ These are **not** the official test suite. They are intended for:
 Override per run:
 
 ```bash
-API_URL="http://localhost:3000" FACE_DIR="/Users/ryan/faces" ./examples/recognize
+API_URL="http://localhost:3000" FACE_DIR="path_to_your_images" ./examples/recognize
 ```
 
 ## Quick start

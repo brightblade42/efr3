@@ -12,28 +12,6 @@ INCLUDE_DETAILS="${2:-false}"
 OPTS="$(printf '{"include_details":%s'} "$INCLUDE_DETAILS" )"
 
 
-##curl_json  POST "/fr/recognize" \
-#  -F "opts=${OPTS};type=application/json" \
-#  -F "image=${IMAGE};filename=face.jpg;type=image/jpeg"
-
-curl -k -X POST "https://173.220.177.76/fr/recognize" \
-  -F "opts=${OPTS};type=application/json" \
-  -F "image=${IMAGE};filename=face.jpg;type=image/jpeg"
-
-
-#set -euo pipefail
-
-#SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-#source "$SCRIPT_DIR/_common"
-
-#IMAGE="${1:-$DEFAULT_IMAGE}"
-#require_image "$IMAGE"
-#IMAGE=$(base64 -w 0 $IMAGE)
-#INCLUDE_DETAILS="${2:-false}"
-
-#OPTS="$(printf '{"include_details":%s'} "$INCLUDE_DETAILS" )"
-
-
-#curl_json POST "/fr/recognize" \
-#  -F "opts=${OPTS};type=application/json" \
-#  -F "image=@${IMAGE};filename=face.jpg;type=image/jpeg"
+curl_json  POST "/fr/recognize" \
+ -F "opts=${OPTS};type=application/json" \
+ -F "image=${IMAGE};filename=face.jpg;type=image/jpeg"

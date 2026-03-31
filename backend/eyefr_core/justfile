@@ -21,3 +21,6 @@ remote:
 
 build:
     cargo build -p fr-api
+
+run:
+    cargo run -p fr-api
