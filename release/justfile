@@ -1,6 +1,4 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
-set dotenv-filename := "eyefr.env"
-set dotenv-load := true
 set export
 set guards
 

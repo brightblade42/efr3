@@ -4,7 +4,6 @@ set -euo pipefail
 IFS=$'\n\t'
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CONFIG_FILE="${CONFIG_FILE:-${CONFIG:-${PROJECT_ROOT}/eyefr.env}}"
 DRY_RUN="${DRY_RUN:-0}"
 
 log() {
@@ -46,19 +45,9 @@ run_cmd() {
   "${cmd}" "$@"
 }
 
-load_config() {
-  if [[ -f "${CONFIG_FILE}" ]]; then
-    info "loading config from ${CONFIG_FILE}"
-    # shellcheck disable=SC1090
-    source "${CONFIG_FILE}"
-  else
-    warn "config file not found at ${CONFIG_FILE}; using defaults"
-  fi
+JUST_INSTALL_DIR="${JUST_INSTALL_DIR:-/usr/local/bin}"
+JUST_VERSION="${JUST_VERSION:-1.48.1}"
 
-  DRY_RUN="${DRY_RUN:-0}"
-  JUST_INSTALL_DIR="${JUST_INSTALL_DIR:-/usr/local/bin}"
-  JUST_VERSION="${JUST_VERSION:-1.48.1}"
-}
 
 run_as_root() {
   if [[ "${EUID}" -eq 0 ]]; then
@@ -139,5 +128,4 @@ install_just() {
   info "just installation complete"
 }
 
-load_config
 install_just

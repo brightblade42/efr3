@@ -15,14 +15,9 @@ On a fresh machine, the current flow is:
 1. Install =just= with the bootstrap script
    - =sudo ./scripts/bootstrap/install_just.sh=
    - this uses the official =just= installer and installs a pinned version by default
-   - the install location and version can be configured in =eyefr.env=
+   - the install location and version can be configured via environment variables if needed
 
-2. Copy the example env file
-   - =cp eyefr.env.example eyefr.env=
-
-3. Adjust any needed values in =eyefr.env=
-
-4. Install phase-1 prerequisites
+2. Install phase-1 prerequisites
    - =just install-prereqs=
    - use =just --dry-run install-prereqs= to preview the full flow without executing it
 
