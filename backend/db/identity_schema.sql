@@ -4,7 +4,7 @@
 
 
 -- Dumped from database version 18.1-custom-block16
--- Dumped by pg_dump version 18.2
+-- Dumped by pg_dump version 18.3
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -60,7 +60,7 @@ BEGIN
     SELECT
         r->>'last_name',
         r->>'first_name',
-        r->>'middle_name',
+        r->>'middle_name', 
         r->>'ext_id',
         r->>'img_url',
         (r->>'raw_data')::jsonb
@@ -126,31 +126,36 @@ $$;
 
 
 --
--- Name: log_enrollment_errors(text[], jsonb[]); Type: FUNCTION; Schema: logs; Owner: -
+-- Name: log_enrollment_errors(text[], jsonb[], jsonb[]); Type: FUNCTION; Schema: logs; Owner: -
 --
 
-CREATE FUNCTION logs.log_enrollment_errors(p_code text[], p_payloads jsonb[]) RETURNS void
+CREATE FUNCTION logs.log_enrollment_errors(p_code text[], p_errors jsonb[], p_input jsonb[]) RETURNS void
     LANGUAGE plpgsql
     AS $$
 declare
   n_cat int := coalesce(array_length(p_code, 1), 0);
-  n_pay int := coalesce(array_length(p_payloads, 1), 0);
+  n_err int := coalesce(array_length(p_errors, 1), 0);
+  n_input int := coalesce(array_length(p_input, 1), 0);
 begin
-  if p_code is null or p_payloads is null then
-    raise exception 'NULL array passed (cat=% pay=%)', p_code is null, p_payloads is null;
+  if p_code is null or p_errors is null or p_input is null then
+    raise exception 'NULL array passed (cat=% err=% input=%)', p_code is null, p_errors is null, p_input is null;
   end if;
 
-  if n_cat = 0 or  n_pay = 0 then
-    raise exception 'empty array passed (cat=% pay=%)', n_cat,  n_pay;
+  if n_cat = 0 or  n_err = 0 or n_input = 0 then
+    raise exception 'empty array passed (cat=% err=% input=%)', n_cat,  n_err, n_input;
   end if;
 
-  if n_cat <> n_pay then
-    raise exception 'length mismatch (cat=% pay=%)', n_cat, n_pay;
+  if n_cat <> n_err  then
+    raise exception 'length mismatch (cat=% err=% )', n_cat, n_err; 
   end if;
 
-  insert into logs.enrollment (code, payload)
-  select code, payload
-  from unnest(p_code, p_payloads) as t(code, payload);
+  if n_input <> n_err  then
+      raise exception 'length mismatch (err=% input=%)', n_err, n_input;
+  end if;
+  
+  insert into logs.enrollment (code, error, input)
+  select code, error, input
+  from unnest(p_code, p_errors, p_input) as t(code, error, input);
 end;
 $$;
 
@@ -174,7 +179,8 @@ CREATE TABLE eyefr.camera (
     fr_stream_settings jsonb,
     min_match double precision,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    feed_position integer
 );
 
 
@@ -327,10 +333,11 @@ CREATE TABLE eyefr.registration_errors (
 CREATE TABLE logs.enrollment (
     id bigint NOT NULL,
     code text CONSTRAINT enrollment_category_not_null NOT NULL,
-    payload jsonb NOT NULL,
+    error jsonb CONSTRAINT enrollment_payload_not_null NOT NULL,
     retry_count integer DEFAULT 0,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    input jsonb
 );
 
 
@@ -346,8 +353,6 @@ CREATE SEQUENCE logs.enrollment_id_seq
     CACHE 1;
 
 
-
-
 --
 -- Name: enrollment_id_seq; Type: SEQUENCE OWNED BY; Schema: logs; Owner: -
 --
@@ -355,30 +360,52 @@ CREATE SEQUENCE logs.enrollment_id_seq
 ALTER SEQUENCE logs.enrollment_id_seq OWNED BY logs.enrollment.id;
 
 
+--
+-- Name: matches; Type: TABLE; Schema: logs; Owner: -
+--
 
-CREATE TABLE logs.matches
-(
-    log_time     timestamp with time zone default now() not null,
+CREATE TABLE logs.matches (
+    log_time timestamp with time zone DEFAULT now() NOT NULL,
     detected_img text,
-    location     text,
-    confidence   numeric,
-    extra        jsonb,
-    pmatch       jsonb,
-    id           bigserial
+    location text,
+    confidence numeric,
+    extra jsonb,
+    pmatch jsonb,
+    id bigint NOT NULL
 );
 
-comment on column logs.matches.extra is 'other related data from some other backend system';
 
-comment on column logs.matches.pmatch is 'the top verified possible match';
+--
+-- Name: COLUMN matches.extra; Type: COMMENT; Schema: logs; Owner: -
+--
 
-
-create index matches_confidence_index
-    on logs.matches (confidence);
-
-create index matches_log_time_index
-    on logs.matches (log_time);
+COMMENT ON COLUMN logs.matches.extra IS 'other related data from some other backend system';
 
 
+--
+-- Name: COLUMN matches.pmatch; Type: COMMENT; Schema: logs; Owner: -
+--
+
+COMMENT ON COLUMN logs.matches.pmatch IS 'the top verified possible match';
+
+
+--
+-- Name: matches_id_seq; Type: SEQUENCE; Schema: logs; Owner: -
+--
+
+CREATE SEQUENCE logs.matches_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: matches_id_seq; Type: SEQUENCE OWNED BY; Schema: logs; Owner: -
+--
+
+ALTER SEQUENCE logs.matches_id_seq OWNED BY logs.matches.id;
 
 
 --
@@ -536,6 +563,13 @@ ALTER TABLE ONLY eyefr.profiles ALTER COLUMN id SET DEFAULT nextval('eyefr.profi
 --
 
 ALTER TABLE ONLY logs.enrollment ALTER COLUMN id SET DEFAULT nextval('logs.enrollment_id_seq'::regclass);
+
+
+--
+-- Name: matches id; Type: DEFAULT; Schema: logs; Owner: -
+--
+
+ALTER TABLE ONLY logs.matches ALTER COLUMN id SET DEFAULT nextval('logs.matches_id_seq'::regclass);
 
 
 --
@@ -726,6 +760,20 @@ CREATE INDEX idx_errors_retry ON logs.enrollment USING btree (code, updated_at);
 
 
 --
+-- Name: matches_confidence_index; Type: INDEX; Schema: logs; Owner: -
+--
+
+CREATE INDEX matches_confidence_index ON logs.matches USING btree (confidence);
+
+
+--
+-- Name: matches_log_time_index; Type: INDEX; Schema: logs; Owner: -
+--
+
+CREATE INDEX matches_log_time_index ON logs.matches USING btree (log_time);
+
+
+--
 -- Name: idx_faces_identity_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -780,3 +828,5 @@ ALTER TABLE ONLY public.groups_identities
 --
 -- PostgreSQL database dump complete
 --
+
+

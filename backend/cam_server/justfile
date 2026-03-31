@@ -2,4 +2,4 @@ default:
     @just --list
 
 hello:
-    echo "hell there"
+    echo "hello there cam_server"

@@ -1,0 +1,89 @@
+set dotenv-load := true
+
+# --- Variables ---
+# Allows overriding from the command line: just dump-schema PG_BIN=/usr/bin
+
+PG_BIN := env('PG_BIN', '/opt/homebrew/opt/libpq/bin')
+IDENTITY_DB_URL := env('IDENTITY_DB_URL', 'postgresql://admin:admin@100.79.241.8:5432/identity?sslmode=disable')
+
+#OUT_DIR := justfile_directory()
+
+OUT_DIR := source_directory()
+
+default:
+    @just --list
+
+# Dump the identity database schema and strip restrictive tokens
+
+# Dump the complete identity database schema
+dump-schema:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ -z "{{ IDENTITY_DB_URL }}" ]]; then
+      echo "Error: IDENTITY_DB_URL is required"
+      exit 1
+    fi
+
+    if [[ ! -x "{{ PG_BIN }}/pg_dump" || ! -x "{{ PG_BIN }}/psql" ]]; then
+      echo "Error: Missing pg_dump/psql in PG_BIN={{ PG_BIN }}"
+      exit 1
+    fi
+
+    SCHEMA_OUT="{{ OUT_DIR }}/identity_schema.sql"
+
+    echo "Dumping full schema (eyefr, logs, public)..."
+    "{{ PG_BIN }}/pg_dump" --schema-only --no-owner --no-privileges "{{ IDENTITY_DB_URL }}" -n eyefr -n logs -n public -f "$SCHEMA_OUT"
+
+    echo "Stripping restrictive tokens..."
+    awk '!/^\\restrict / && !/^\\unrestrict / { print }' "$SCHEMA_OUT" > "${SCHEMA_OUT}.tmp"
+    mv "${SCHEMA_OUT}.tmp" "$SCHEMA_OUT"
+
+    echo "Gathering server metadata..."
+    SERVER_VERSION="$("{{ PG_BIN }}/psql" "{{ IDENTITY_DB_URL }}" -tAc "show server_version;" | tr -d '[:space:]')"
+    CAPTURED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+    cat > "{{ OUT_DIR }}/SCHEMA_SOURCE.md" <<EOF
+    # Schema Source
+    - Captured at: $CAPTURED_AT
+    - Database: identity
+    - Server version: $SERVER_VERSION
+    - Snapshot: identity_schema.sql (eyefr, logs, public)
+    EOF
+
+        echo "✅ Refreshed schema snapshot in {{ OUT_DIR }}"
+
+# Restore the dumped schema to the remote dev database
+restore-schema:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ -z "{{ IDENTITY_DB_URL }}" ]]; then
+      echo "Error: IDENTITY_DB_URL is required."
+      exit 1
+    fi
+
+    if [[ ! -x "{{ PG_BIN }}/psql" ]]; then
+      echo "Error: Missing psql in PG_BIN={{ PG_BIN }}"
+      exit 1
+    fi
+
+    SCHEMA_OUT="{{ OUT_DIR }}/identity_schema.sql"
+
+    if [[ ! -f "$SCHEMA_OUT" ]]; then
+      echo "Error: Schema file not found at $SCHEMA_OUT"
+      echo "Run 'just dump-schema' first."
+      exit 1
+    fi
+
+    echo "⚠️  WARNING: You are about to execute a destructive schema restore against:"
+    echo "    Target: {{ IDENTITY_DB_URL }}"
+    echo ""
+    echo "Press Enter to continue, or Ctrl+C to abort..."
+    read -r
+
+    echo "Restoring schema to remote dev server..."
+
+    "{{ PG_BIN }}/psql" "{{ IDENTITY_DB_URL }}" -v ON_ERROR_STOP=1 -f "$SCHEMA_OUT"
+
+    echo "✅ Schema restored successfully."
